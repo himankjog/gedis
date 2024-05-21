@@ -16,6 +16,7 @@ func closeConnection(conn net.Conn) {
 
 func main() {
 	conn, err := getPortConn()
+	defer closeConnection(conn)
 
 	if err != nil {
 		fmt.Println("Error accepting connection: ", err.Error())
@@ -42,7 +43,7 @@ func getPortConn() (net.Conn, error) {
 		fmt.Println("Failed to create connection on address ", address)
 		os.Exit(1)
 	}
-	defer closeConnection(conn)
+	fmt.Println("Connection created on address ", address)
 	return conn, err
 }
 
