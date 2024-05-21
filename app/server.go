@@ -9,8 +9,9 @@ import (
 )
 
 const (
-	ADDRESS = "0.0.0.0:6379"
-	PONG    = "+PONG\r\n"
+	ADDRESS      = "0.0.0.0:6379"
+	PONG         = "+PONG\r\n"
+	PING_REQUEST = "PING\r\n"
 )
 
 func main() {
@@ -43,7 +44,7 @@ func handleConnection(conn net.Conn) {
 		}
 		log.Printf("Received data from %s: %q", conn.RemoteAddr(), request)
 
-		if request == "PING" {
+		if request == PING_REQUEST {
 			sendPongResponse(conn)
 		}
 	}
