@@ -1,10 +1,53 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
+	"log"
 	"net"
 	"os"
 )
+
+const (
+	ADDRESS = "0.0.0.0:6379"
+	PONG    = "+PONG\r\n"
+)
+
+func main() {
+	listener := getListener(ADDRESS)
+	defer listener.Close()
+
+	log.Println("Listening on address: ", ADDRESS)
+
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			log.Println("Error accepting connection: ", err.Error())
+			continue
+		}
+		go handleConnection(conn)
+	}
+}
+
+func handleConnection(conn net.Conn) {
+	defer closeConnection(conn)
+	log.Println("Connection accepted from ", conn.RemoteAddr())
+
+	reader := bufio.NewReader(conn)
+
+	for {
+		request, err := reader.ReadString('\n')
+		if err != nil {
+			fmt.Printf("Error reading data from %s: %v", conn.RemoteAddr(), err.Error())
+			return
+		}
+		log.Printf("Received data from %s: %q", conn.RemoteAddr(), request)
+
+		if request == "PING" {
+			sendPongResponse(conn)
+		}
+	}
+}
 
 func closeConnection(conn net.Conn) {
 	err := conn.Close()
@@ -14,52 +57,19 @@ func closeConnection(conn net.Conn) {
 	}
 }
 
-func main() {
-	conn, err := getPortConn()
-	defer closeConnection(conn)
-
-	if err != nil {
-		fmt.Println("Error accepting connection: ", err.Error())
-		os.Exit(1)
-	}
-
-	buf := make([]byte, 1024)
-	for {
-		input, err := conn.Read(buf)
-		if err != nil {
-			fmt.Println("Error reading data: ", err.Error())
-			os.Exit(1)
-		}
-		fmt.Println("Received: ", string(buf[:input]))
-		sendPongResponse(conn, err)
-	}
-}
-
-func getPortConn() (net.Conn, error) {
-	address := "0.0.0.0:6379"
-	listener, err := getPortListener(address)
-	conn, err := listener.Accept()
-	if err != nil {
-		fmt.Println("Failed to create connection on address ", address)
-		os.Exit(1)
-	}
-	fmt.Println("Connection created on address ", address)
-	return conn, err
-}
-
-func getPortListener(address string) (net.Listener, error) {
+func getListener(address string) net.Listener {
 	l, err := net.Listen("tcp", address)
 	if err != nil {
-		fmt.Println("Failed to bind to port on address ", address)
-		os.Exit(1)
+		log.Fatalf("Failed to bind to port on address %s: %v", address, err)
 	}
-	return l, err
+	return l
 }
 
-func sendPongResponse(conn net.Conn, err error) {
-	_, err = conn.Write([]byte("+PONG\r\n"))
+func sendPongResponse(conn net.Conn) {
+	_, err := conn.Write([]byte(PONG))
 	if err != nil {
-		fmt.Println("Error writing data: ", err.Error())
-		os.Exit(1)
+		log.Printf("Error writing data to conn %s: %v", conn.RemoteAddr(), err.Error())
+		return
 	}
+	log.Printf("Sent PONG to %s", conn.RemoteAddr())
 }
