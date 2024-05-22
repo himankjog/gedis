@@ -91,24 +91,19 @@ func eventLoop(epollFd int) {
 }
 
 func handleConnection(conn net.Conn, epollFd int, connFd int) {
-	defer closeConnection(conn)
-	defer closeConnectionPoll(epollFd, connFd)
-
 	log.Println("Handling connection from ", conn.RemoteAddr())
-
 	reader := bufio.NewReader(conn)
+	request, err := reader.ReadString('\n')
+	if err != nil {
+		fmt.Printf("Error reading data from %s: %v", conn.RemoteAddr(), err.Error())
+		closeConnection(conn)
+		closeConnectionPoll(epollFd, connFd)
+		return
+	}
+	log.Printf("Received data from %s: %q", conn.RemoteAddr(), request)
 
-	for {
-		request, err := reader.ReadString('\n')
-		if err != nil {
-			fmt.Printf("Error reading data from %s: %v", conn.RemoteAddr(), err.Error())
-			break
-		}
-		log.Printf("Received data from %s: %q", conn.RemoteAddr(), request)
-
-		if request == PING_REQUEST {
-			sendPongResponse(conn)
-		}
+	if request == PING_REQUEST {
+		sendPongResponse(conn)
 	}
 }
 
