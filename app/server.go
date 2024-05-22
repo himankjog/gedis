@@ -78,7 +78,7 @@ func eventLoop(epollFd int) {
 		if err != nil {
 			log.Fatalf("Error waiting for epoll events: %v", err.Error())
 		}
-
+		log.Printf("Epoll has %d events", n)
 		for i := 0; i < n; i++ {
 			if events[i].Fd == -1 {
 				continue
@@ -92,7 +92,7 @@ func eventLoop(epollFd int) {
 
 func handleConnection(conn net.Conn, epollFd int, connFd int) {
 	if conn == nil {
-		log.Println("Cannot handle nil connection")
+		log.Println("Cannot handle nil connection for connFd: ", connFd)
 		return
 	}
 	log.Println("Handling connection from ", conn.RemoteAddr())
