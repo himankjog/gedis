@@ -6,6 +6,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"syscall"
 )
 
 const (
@@ -14,24 +15,86 @@ const (
 	PING_REQUEST = "PING\r\n"
 )
 
+var connections = make(map[int]net.Conn)
+
 func main() {
 	listener := getListener(ADDRESS)
 	defer listener.Close()
 
 	log.Println("Listening on address: ", ADDRESS)
 
+	epollFd, err := syscall.EpollCreate1(0)
+
+	if err != nil {
+		log.Fatalf("Error creating epoll: %v", err.Error())
+	}
+
+	go acceptConnections(listener, epollFd)
+
+	eventLoop(epollFd)
+}
+
+func acceptConnections(listener net.Listener, epollFd int) {
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
 			log.Println("Error accepting connection: ", err.Error())
 			continue
 		}
-		go handleConnection(conn)
+		log.Println("Accepted connection from ", conn.RemoteAddr())
+
+		connFd := getConnectionFileDescriptor(conn)
+		log.Printf("For connection %s fd: %d", conn.RemoteAddr(), connFd)
+
+		err = syscall.EpollCtl(epollFd, syscall.EPOLL_CTL_ADD, connFd, &syscall.EpollEvent{
+			Events: syscall.EPOLLIN | syscall.EPOLLERR,
+			Fd:     int32(connFd),
+		})
+		if err != nil {
+			log.Printf("Error adding connection %s to epoll: %v", conn.RemoteAddr(), err.Error())
+			closeConnection(conn)
+			continue
+		}
+
+		connections[connFd] = conn
+		log.Printf("Connection accepted from: %s", conn.RemoteAddr())
 	}
 }
 
-func handleConnection(conn net.Conn) {
+func getConnectionFileDescriptor(conn net.Conn) int {
+	tcpConn := conn.(*net.TCPConn)
+	file, err := tcpConn.File()
+
+	if err != nil {
+		log.Fatalf("Error getting file descriptor: %v", err.Error())
+	}
+	return int(file.Fd())
+}
+
+func eventLoop(epollFd int) {
+	events := make([]syscall.EpollEvent, 100)
+
+	for {
+		n, err := syscall.EpollWait(epollFd, events, -1)
+		if err != nil {
+			log.Fatalf("Error waiting for epoll events: %v", err.Error())
+		}
+
+		for i := 0; i < n; i++ {
+			if events[i].Fd == -1 {
+				continue
+			}
+			connFd := int(events[i].Fd)
+			conn := connections[connFd]
+			handleConnection(conn, epollFd, connFd)
+		}
+	}
+}
+
+func handleConnection(conn net.Conn, epollFd int, connFd int) {
 	defer closeConnection(conn)
+	defer closeConnectionPoll(epollFd, connFd)
+
 	log.Println("Connection accepted from ", conn.RemoteAddr())
 
 	reader := bufio.NewReader(conn)
@@ -40,7 +103,7 @@ func handleConnection(conn net.Conn) {
 		request, err := reader.ReadString('\n')
 		if err != nil {
 			fmt.Printf("Error reading data from %s: %v", conn.RemoteAddr(), err.Error())
-			return
+			break
 		}
 		log.Printf("Received data from %s: %q", conn.RemoteAddr(), request)
 
@@ -48,6 +111,15 @@ func handleConnection(conn net.Conn) {
 			sendPongResponse(conn)
 		}
 	}
+}
+
+func closeConnectionPoll(epollFd int, connFd int) {
+	err := syscall.EpollCtl(epollFd, syscall.EPOLL_CTL_DEL, connFd, nil)
+	if err != nil {
+		log.Printf("Failed to remove fd %d from epoll: %v", connFd, err)
+	}
+	delete(connections, connFd)
+	log.Printf("Connection %d closed", connFd)
 }
 
 func closeConnection(conn net.Conn) {
