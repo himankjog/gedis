@@ -41,7 +41,6 @@ func acceptConnections(listener net.Listener, epollFd int) {
 			log.Println("Error accepting connection: ", err.Error())
 			continue
 		}
-		log.Println("Accepted connection from ", conn.RemoteAddr())
 
 		connFd := getConnectionFileDescriptor(conn)
 		log.Printf("For connection %s fd: %d", conn.RemoteAddr(), connFd)
@@ -95,7 +94,7 @@ func handleConnection(conn net.Conn, epollFd int, connFd int) {
 	defer closeConnection(conn)
 	defer closeConnectionPoll(epollFd, connFd)
 
-	log.Println("Connection accepted from ", conn.RemoteAddr())
+	log.Println("Handling connection from ", conn.RemoteAddr())
 
 	reader := bufio.NewReader(conn)
 
