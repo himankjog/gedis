@@ -47,7 +47,7 @@ func acceptConnections(listener net.Listener, epollFd int) {
 
 		connections[connFd] = conn
 		err = syscall.EpollCtl(epollFd, syscall.EPOLL_CTL_ADD, connFd, &syscall.EpollEvent{
-			Events: syscall.EPOLLIN | syscall.EPOLLERR,
+			Events: syscall.EPOLLIN,
 			Fd:     int32(connFd),
 		})
 		if err != nil {
