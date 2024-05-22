@@ -91,6 +91,10 @@ func eventLoop(epollFd int) {
 }
 
 func handleConnection(conn net.Conn, epollFd int, connFd int) {
+	if conn == nil {
+		log.Println("Cannot handle nil connection")
+		return
+	}
 	log.Println("Handling connection from ", conn.RemoteAddr())
 	reader := bufio.NewReader(conn)
 	for {
