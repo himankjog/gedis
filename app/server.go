@@ -45,6 +45,7 @@ func acceptConnections(listener net.Listener, epollFd int) {
 		connFd := getConnectionFileDescriptor(conn)
 		log.Printf("For connection %s fd: %d", conn.RemoteAddr(), connFd)
 
+		connections[connFd] = conn
 		err = syscall.EpollCtl(epollFd, syscall.EPOLL_CTL_ADD, connFd, &syscall.EpollEvent{
 			Events: syscall.EPOLLIN | syscall.EPOLLERR,
 			Fd:     int32(connFd),
@@ -52,10 +53,10 @@ func acceptConnections(listener net.Listener, epollFd int) {
 		if err != nil {
 			log.Printf("Error adding connection %s to epoll: %v", conn.RemoteAddr(), err.Error())
 			closeConnection(conn)
+			closeConnectionPoll(epollFd, connFd)
 			continue
 		}
 
-		connections[connFd] = conn
 		log.Printf("Connection accepted from: %s", conn.RemoteAddr())
 	}
 }
@@ -91,10 +92,6 @@ func eventLoop(epollFd int) {
 }
 
 func handleConnection(conn net.Conn, epollFd int, connFd int) {
-	if conn == nil {
-		log.Println("Cannot handle nil connection for connFd: ", connFd)
-		return
-	}
 	log.Println("Handling connection from ", conn.RemoteAddr())
 	reader := bufio.NewReader(conn)
 	for {
