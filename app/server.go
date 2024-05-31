@@ -95,7 +95,7 @@ func handleConnection(conn net.Conn, epollFd int, connFd int) {
 	log.Println("Handling connection from ", conn.RemoteAddr())
 	reader := bufio.NewReader(conn)
 	for {
-		request, err := reader.ReadString(0)
+		request, err := reader.ReadSlice(0)
 		if err != nil {
 			fmt.Printf("Error reading data from %s: %v", conn.RemoteAddr(), err.Error())
 			closeConnection(conn)
@@ -103,11 +103,8 @@ func handleConnection(conn net.Conn, epollFd int, connFd int) {
 			break
 		}
 		log.Printf("Received data from %s: %q", conn.RemoteAddr(), request)
-
-		if request == PING_REQUEST {
-			sendPongResponse(conn)
-			break
-		}
+		log.Printf("Received data from %s: %q", conn.RemoteAddr(), request)
+		sendPongResponse(conn)
 	}
 }
 
