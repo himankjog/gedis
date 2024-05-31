@@ -97,7 +97,7 @@ func handleConnection(conn net.Conn, epollFd int, connFd int) {
 	reader := bufio.NewReader(conn)
 	requestData := make([]byte, 0, 1024)
 	for {
-		readBuf, err := reader.ReadSlice(0)
+		readBuf := make([]byte, 1024)
 		bytesRead, err := reader.Read(readBuf)
 		if err != nil {
 			fmt.Printf("Error reading data from %s: %v", conn.RemoteAddr(), err.Error())
