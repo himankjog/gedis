@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"os"
@@ -94,18 +95,22 @@ func eventLoop(epollFd int) {
 func handleConnection(conn net.Conn, epollFd int, connFd int) {
 	log.Println("Handling connection from ", conn.RemoteAddr())
 	reader := bufio.NewReader(conn)
+	requestData := make([]byte, 0, 1024)
 	for {
-		request, err := reader.ReadSlice(0)
+		readBuf, err := reader.ReadSlice(0)
+		bytesRead, err := reader.Read(readBuf)
 		if err != nil {
 			fmt.Printf("Error reading data from %s: %v", conn.RemoteAddr(), err.Error())
-			closeConnection(conn)
-			closeConnectionPoll(epollFd, connFd)
+			if err != io.EOF {
+				closeConnection(conn)
+				closeConnectionPoll(epollFd, connFd)
+			}
 			break
 		}
-		log.Printf("Received data from %s: %q", conn.RemoteAddr(), request)
-		log.Printf("Received data from %s: %q", conn.RemoteAddr(), request)
-		sendPongResponse(conn)
+		requestData = append(requestData, readBuf[:bytesRead]...)
 	}
+	log.Printf("Received data from %s: %q", conn.RemoteAddr(), requestData)
+	sendPongResponse(conn)
 }
 
 func closeConnectionPoll(epollFd int, connFd int) {
