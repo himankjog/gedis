@@ -99,6 +99,8 @@ func handleConnection(conn net.Conn, epollFd int, connFd int) {
 	for {
 		readBuf := make([]byte, 1024)
 		bytesRead, err := reader.Read(readBuf)
+		log.Printf("Read %d bytes from %s", bytesRead, conn.RemoteAddr())
+		log.Printf("Data in readBuf: %q", readBuf)
 		if err != nil {
 			fmt.Printf("Error reading data from %s: %v", conn.RemoteAddr(), err.Error())
 			if err != io.EOF {
