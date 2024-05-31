@@ -95,7 +95,7 @@ func handleConnection(conn net.Conn, epollFd int, connFd int) {
 	log.Println("Handling connection from ", conn.RemoteAddr())
 	reader := bufio.NewReader(conn)
 	for {
-		request, err := reader.ReadString('\n')
+		request, err := reader.ReadString(0)
 		if err != nil {
 			fmt.Printf("Error reading data from %s: %v", conn.RemoteAddr(), err.Error())
 			closeConnection(conn)
