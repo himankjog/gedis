@@ -77,7 +77,7 @@ func acceptConnections(listener net.Listener) {
 }
 
 func handleConnection(conn net.Conn) {
-	log.Println("[%s] Started handling connection", conn.RemoteAddr())
+	log.Printf("[%s] Started handling connection", conn.RemoteAddr())
 	reader := bufio.NewReader(conn)
 	requestData := make([]byte, 0, 1024)
 	for {
@@ -104,7 +104,7 @@ func handleConnection(conn net.Conn) {
 		RequestId: requestId,
 	})
 	if err != nil {
-		log.Printf("[%s] Unable to handle request ID '%s' with data: %v", conn.RemoteAddr(), requestId.String(), requestData)
+		log.Printf("[%s] Unable to handle request ID '%s' with data: %q", conn.RemoteAddr(), requestId.String(), requestData)
 		terminateConnection(conn)
 		return
 	}
@@ -149,7 +149,7 @@ func closeConnection(conn net.Conn) {
 		os.Exit(1)
 	}
 	CONN_FILE_DESC_BI_MAP.DeleteUsingReverseLookup(conn)
-	log.Printf("[%s] Connection closed", conn)
+	log.Printf("[%s] Connection closed", conn.RemoteAddr())
 }
 
 func sendResponse(conn net.Conn, response []byte) {
