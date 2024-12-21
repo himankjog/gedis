@@ -1,4 +1,4 @@
-package main
+package parser
 
 import (
 	"bufio"
@@ -7,22 +7,6 @@ import (
 	"log"
 	"strconv"
 )
-
-type Type byte
-
-const (
-	INTEGER = ':'
-	STRING  = '+'
-	BULK    = '$'
-	ARRAY   = '*'
-	ERROR   = '-'
-)
-
-type RESP struct {
-	Type  Type
-	Data  []byte
-	Array []RESP
-}
 
 func Decode(data []byte) (RESP, error) {
 	if len(data) == 0 {
@@ -33,7 +17,7 @@ func Decode(data []byte) (RESP, error) {
 }
 
 func decode(reader *bufio.Reader) (RESP, error) {
-	data, _, err := readNext(reader)
+	data, _, err := ReadNext(reader)
 	if err != nil {
 		log.Printf("Error trying to start decode: %s", err)
 		return RESP{}, err
@@ -44,7 +28,7 @@ func decode(reader *bufio.Reader) (RESP, error) {
 	case STRING:
 		return decodeSimpleString(data[1:])
 	case BULK:
-		bulkStringData, _, err := readNext(reader)
+		bulkStringData, _, err := ReadNext(reader)
 		if err != nil {
 			log.Printf("Error trying to read bulk string data from decode: %s", err)
 			return RESP{}, err
@@ -63,7 +47,7 @@ func decode(reader *bufio.Reader) (RESP, error) {
 
 func decodeInteger(data []byte) (RESP, error) {
 	reader := bufio.NewReader(bytes.NewReader(data))
-	integerData, charactersRead, err := readNext(reader)
+	integerData, charactersRead, err := ReadNext(reader)
 	if err != nil {
 		log.Printf("Error trying to read integer data in decodeInteger: %s", err)
 		return RESP{}, errors.New("error parsing integer data")
@@ -83,7 +67,7 @@ func decodeInteger(data []byte) (RESP, error) {
 
 func decodeSimpleString(data []byte) (RESP, error) {
 	reader := bufio.NewReader(bytes.NewReader(data))
-	simpleString, charactersRead, err := readNext(reader)
+	simpleString, charactersRead, err := ReadNext(reader)
 	if err != nil {
 		log.Printf("Error trying to read simple string in decodeSimpleString: %s", err)
 		return RESP{}, err
@@ -98,7 +82,7 @@ func decodeSimpleString(data []byte) (RESP, error) {
 
 func decodeBulkString(data []byte) (RESP, error) {
 	bulkStringReader := bufio.NewReader(bytes.NewReader(data))
-	bulkStringLengthBytes, charactersRead, err := readNext(bulkStringReader)
+	bulkStringLengthBytes, charactersRead, err := ReadNext(bulkStringReader)
 	if err != nil {
 		log.Printf("Error trying to read bulk string length bytes in decodeBulkString: %s", err)
 		return RESP{}, err
@@ -137,7 +121,7 @@ func decodeBulkString(data []byte) (RESP, error) {
 
 func decodeError(data []byte) (RESP, error) {
 	reader := bufio.NewReader(bytes.NewReader(data))
-	errorData, charactersRead, err := readNext(reader)
+	errorData, charactersRead, err := ReadNext(reader)
 	if err != nil {
 		log.Printf("Error trying to read error data in decodeError: %s", err)
 		return RESP{}, err
@@ -152,7 +136,7 @@ func decodeError(data []byte) (RESP, error) {
 
 func decodeArray(data []byte, reader *bufio.Reader) (RESP, error) {
 	arrayReader := bufio.NewReader(bytes.NewReader(data))
-	arrayLengthBytes, charactersRead, err := readNext(arrayReader)
+	arrayLengthBytes, charactersRead, err := ReadNext(arrayReader)
 	if err != nil {
 		log.Printf("Error trying to read array length bytes in decodeArray: %s", err)
 		return RESP{}, err
@@ -179,16 +163,4 @@ func decodeArray(data []byte, reader *bufio.Reader) (RESP, error) {
 		Data:  nil,
 		Array: array,
 	}, nil
-}
-
-func readNext(reader *bufio.Reader) ([]byte, int, error) {
-	line, err := reader.ReadBytes('\n')
-	if err != nil {
-		return nil, 0, err
-	}
-	if len(line) < 2 || line[len(line)-2] != '\r' {
-		return nil, 0, errors.New("carriage return character not found")
-	}
-	charactersRead := len(line) - 2
-	return line, charactersRead, nil
 }
