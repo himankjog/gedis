@@ -45,6 +45,10 @@ func encodeString(data []byte) string {
 }
 
 func encodeBulkString(data []byte) string {
+	if data == nil {
+		log.Printf("Encoding null bulk string")
+		return string(constants.BULK) + strconv.Itoa(-1) + CRLF
+	}
 	bulkString := string(data)
 	bulkStringLength := len(bulkString)
 	encodedBulkString := strconv.Itoa(bulkStringLength) + CRLF + bulkString
