@@ -1,4 +1,4 @@
-package parser
+package constants
 
 type Type byte
 
@@ -10,8 +10,8 @@ const (
 	ERROR   = '-'
 )
 
-type RESP struct {
+type DataRepr struct {
 	Type  Type
 	Data  []byte
-	Array []RESP
+	Array []DataRepr
 }

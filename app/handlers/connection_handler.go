@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"bufio"
-	"fmt"
 	"io"
 	"log"
 	"net"
@@ -85,7 +84,7 @@ func handleConnection(conn net.Conn) {
 		bytesRead, err := reader.Read(readBuf)
 		log.Printf("[%s] Read %d bytes from connection", conn.RemoteAddr(), bytesRead)
 		if err != nil {
-			fmt.Printf("[%s] Error reading data from: %v", conn.RemoteAddr(), err.Error())
+			log.Printf("[%s] Error reading data from: %v", conn.RemoteAddr(), err.Error())
 			if err != io.EOF {
 				terminateConnection(conn)
 			}
@@ -97,17 +96,16 @@ func handleConnection(conn net.Conn) {
 			break
 		}
 	}
+	if len(requestData) < 1 {
+		log.Printf("[%s] Empty request data to process", conn.RemoteAddr())
+		return
+	}
 	requestId := uuid.New()
 	log.Printf("[%s] Received request ID '%s' with data: %q", conn.RemoteAddr(), requestId.String(), requestData)
-	response, err := ProcessRequest(Request{
+	response := ProcessRequest(Request{
 		Data:      requestData,
 		RequestId: requestId,
 	})
-	if err != nil {
-		log.Printf("[%s] Unable to handle request ID '%s' with data: %q", conn.RemoteAddr(), requestId.String(), requestData)
-		terminateConnection(conn)
-		return
-	}
 
 	sendResponse(conn, response)
 }
@@ -158,7 +156,7 @@ func sendResponse(conn net.Conn, response []byte) {
 		log.Printf("[%s] Error writing response to connection: %v", conn.RemoteAddr(), err.Error())
 		return
 	}
-	log.Printf("[%s] Successfully sent ", conn.RemoteAddr())
+	log.Printf("[%s] Successfully sent response: %q", conn.RemoteAddr(), response)
 }
 
 func sendPongResponse(conn net.Conn) {

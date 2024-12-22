@@ -3,9 +3,11 @@ package parser
 import (
 	"bytes"
 	"testing"
+
+	"github.com/codecrafters-io/redis-starter-go/app/constants"
 )
 
-func validResponse(expectedResponse RESP, actualResponse RESP) bool {
+func validResponse(expectedResponse constants.DataRepr, actualResponse constants.DataRepr) bool {
 	if actualResponse.Type != expectedResponse.Type {
 		return false
 	}
@@ -24,8 +26,8 @@ func validResponse(expectedResponse RESP, actualResponse RESP) bool {
 
 func TestDecodeInteger_ValidInteger(t *testing.T) {
 	input := []byte(":123\r\n")
-	expected := RESP{
-		Type:  INTEGER,
+	expected := constants.DataRepr{
+		Type:  constants.INTEGER,
 		Data:  []byte("123"),
 		Array: nil,
 	}
@@ -35,8 +37,8 @@ func TestDecodeInteger_ValidInteger(t *testing.T) {
 
 func TestDecodeInteger_ValidPositiveInteger(t *testing.T) {
 	input := []byte(":+123\r\n")
-	expected := RESP{
-		Type:  INTEGER,
+	expected := constants.DataRepr{
+		Type:  constants.INTEGER,
 		Data:  []byte("+123"),
 		Array: nil,
 	}
@@ -46,8 +48,8 @@ func TestDecodeInteger_ValidPositiveInteger(t *testing.T) {
 
 func TestDecodeInteger_NegativeInteger(t *testing.T) {
 	input := []byte(":-123\r\n")
-	expected := RESP{
-		Type:  INTEGER,
+	expected := constants.DataRepr{
+		Type:  constants.INTEGER,
 		Data:  []byte("-123"),
 		Array: nil,
 	}
@@ -75,8 +77,8 @@ func TestDecodeInteger_InvalidInteger_MissingNextLineSuffix(t *testing.T) {
 
 func TestSimpleString_ValidSimpleString(t *testing.T) {
 	input := []byte("+ABC DEF\r\n")
-	expected := RESP{
-		Type:  STRING,
+	expected := constants.DataRepr{
+		Type:  constants.STRING,
 		Data:  []byte("ABC DEF"),
 		Array: nil,
 	}
@@ -104,8 +106,8 @@ func TestSimpleString_InvalidSimpleString_MissingNextLineSuffix(t *testing.T) {
 
 func TestBulkString_ValidBulkString(t *testing.T) {
 	input := []byte("$5\r\nhello\r\n")
-	expected := RESP{
-		Type:  BULK,
+	expected := constants.DataRepr{
+		Type:  constants.BULK,
 		Data:  []byte("hello"),
 		Array: nil,
 	}
@@ -115,8 +117,8 @@ func TestBulkString_ValidBulkString(t *testing.T) {
 
 func TestBulkString_EmptyBulkString(t *testing.T) {
 	input := []byte("$0\r\n\r\n")
-	expected := RESP{
-		Type:  BULK,
+	expected := constants.DataRepr{
+		Type:  constants.BULK,
 		Data:  []byte(""),
 		Array: nil,
 	}
@@ -150,17 +152,17 @@ func TestBulkString_InvalidBulkStringLength_LessThanDefinedData(t *testing.T) {
 
 func TestBulkString_ValidOneDimensionalArray(t *testing.T) {
 	input := []byte("*2\r\n$5\r\nhello\r\n$5\r\nworld\r\n")
-	expected := RESP{
-		Type: ARRAY,
+	expected := constants.DataRepr{
+		Type: constants.ARRAY,
 		Data: nil,
-		Array: []RESP{
+		Array: []constants.DataRepr{
 			{
-				Type:  BULK,
+				Type:  constants.BULK,
 				Data:  []byte("hello"),
 				Array: nil,
 			},
 			{
-				Type:  BULK,
+				Type:  constants.BULK,
 				Data:  []byte("world"),
 				Array: nil,
 			},
@@ -172,42 +174,42 @@ func TestBulkString_ValidOneDimensionalArray(t *testing.T) {
 
 func TestBulkString_ValidNestedArray(t *testing.T) {
 	input := []byte("*2\r\n*3\r\n:1\r\n:2\r\n:3\r\n*2\r\n+Hello\r\n-World\r\n")
-	expected := RESP{
-		Type: ARRAY,
+	expected := constants.DataRepr{
+		Type: constants.ARRAY,
 		Data: nil,
-		Array: []RESP{
+		Array: []constants.DataRepr{
 			{
-				Type: ARRAY,
+				Type: constants.ARRAY,
 				Data: nil,
-				Array: []RESP{
+				Array: []constants.DataRepr{
 					{
-						Type:  INTEGER,
+						Type:  constants.INTEGER,
 						Data:  []byte("1"),
 						Array: nil,
 					},
 					{
-						Type:  INTEGER,
+						Type:  constants.INTEGER,
 						Data:  []byte("2"),
 						Array: nil,
 					},
 					{
-						Type:  INTEGER,
+						Type:  constants.INTEGER,
 						Data:  []byte("3"),
 						Array: nil,
 					},
 				},
 			},
 			{
-				Type: ARRAY,
+				Type: constants.ARRAY,
 				Data: nil,
-				Array: []RESP{
+				Array: []constants.DataRepr{
 					{
-						Type:  STRING,
+						Type:  constants.STRING,
 						Data:  []byte("Hello"),
 						Array: nil,
 					},
 					{
-						Type:  ERROR,
+						Type:  constants.ERROR,
 						Data:  []byte("World"),
 						Array: nil,
 					},
@@ -224,7 +226,7 @@ func TestBulkString_InvalidOneDimensionalArray(t *testing.T) {
 	expectError(t, input, expectedErr)
 }
 
-func expectValidResponse(t *testing.T, input []byte, expected RESP) {
+func expectValidResponse(t *testing.T, input []byte, expected constants.DataRepr) {
 	resp, err := Decode(input)
 	if err != nil {
 		t.Errorf("decodeInteger(%q) returned error %v", input, err)
@@ -235,7 +237,7 @@ func expectValidResponse(t *testing.T, input []byte, expected RESP) {
 }
 
 func expectError(t *testing.T, input []byte, expectedError string) {
-	expected := RESP{}
+	expected := constants.DataRepr{}
 
 	resp, err := Decode(input)
 	if err == nil {
