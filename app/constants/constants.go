@@ -15,3 +15,7 @@ type DataRepr struct {
 	Data  []byte
 	Array []DataRepr
 }
+
+const (
+	CRLF = "\r\n"
+)

@@ -25,9 +25,9 @@ func ProcessRequest(request Request) []byte {
 	decodedRequestData, err := parser.Decode(requestData)
 
 	if err != nil {
-		log.Printf("[%s] Error while trying to decode request with data '%q' : %v", requestId.String(), requestData, err.Error())
-		// TODO: Return encoded Error response
-		return make([]byte, 0)
+		errMessage := fmt.Sprintf("[%s] Error while trying to decode request with data '%q' : %v", requestId.String(), requestData, err.Error())
+		log.Println(errMessage)
+		return errorResponse(errMessage)
 	}
 
 	return processRequest(decodedRequestData, requestId)
@@ -40,8 +40,7 @@ func processRequest(decodedRequestData constants.DataRepr, requestId uuid.UUID) 
 	if decodedRequestData.Type != constants.ARRAY {
 		errMessage := fmt.Sprintf("[%s] Unable to extract command from decoded request data: %q", requestId.String(), decodedRequestData.Data)
 		log.Println(errMessage)
-		// TODO: Return encoded Error response
-		return make([]byte, 0)
+		return errorResponse(errMessage)
 	}
 	command := string(decodedRequestData.Array[0].Data)
 	args := decodedRequestData.Array[1:]
@@ -50,4 +49,14 @@ func processRequest(decodedRequestData constants.DataRepr, requestId uuid.UUID) 
 	response := ExecuteCommand(command, args)
 	log.Printf("[%s] Response post processing request: %q", requestId.String(), response)
 	return parser.Encode(response)
+}
+
+func errorResponse(errMessage string) []byte {
+	return parser.Encode(
+		constants.DataRepr{
+			Type:  constants.ERROR,
+			Data:  []byte(errMessage),
+			Array: nil,
+		},
+	)
 }

@@ -35,7 +35,7 @@ func ExecuteCommand(cmd string, args []constants.DataRepr) constants.DataRepr {
 
 	if !commandHandlerPresent {
 		errMessage := fmt.Sprintf("Command handler not present for command: %s", commandName)
-		log.Printf(errMessage)
+		log.Print(errMessage)
 		return constants.DataRepr{
 			Type:  constants.ERROR,
 			Data:  []byte(errMessage),
@@ -60,7 +60,7 @@ func handlePingCommand(args []constants.DataRepr) constants.DataRepr {
 func handleEchoCommand(args []constants.DataRepr) constants.DataRepr {
 	if len(args) != 1 {
 		errMessage := fmt.Sprintf("ECHO command expects %d variables but %d given", 1, len(args))
-		log.Printf(errMessage)
+		log.Print(errMessage)
 		return constants.DataRepr{
 			Type:  constants.ERROR,
 			Data:  []byte(errMessage),
@@ -74,7 +74,7 @@ func handleEchoCommand(args []constants.DataRepr) constants.DataRepr {
 func handleGetCommand(args []constants.DataRepr) constants.DataRepr {
 	if len(args) != 1 {
 		errMessage := fmt.Sprintf("GET command expects %d variables but %d given", 1, len(args))
-		log.Printf(errMessage)
+		log.Print(errMessage)
 		return constants.DataRepr{
 			Type:  constants.ERROR,
 			Data:  []byte(errMessage),
@@ -100,7 +100,7 @@ func handleGetCommand(args []constants.DataRepr) constants.DataRepr {
 func handleSetCommand(args []constants.DataRepr) constants.DataRepr {
 	if len(args) < 2 {
 		errMessage := fmt.Sprintf("SET command expects >%d variables but %d given", 1, len(args))
-		log.Printf(errMessage)
+		log.Print(errMessage)
 		return constants.DataRepr{
 			Type:  constants.ERROR,
 			Data:  []byte(errMessage),
@@ -136,7 +136,7 @@ func handleSetCommand(args []constants.DataRepr) constants.DataRepr {
 func handleSetPxCommand(args []constants.DataRepr) constants.DataRepr {
 	if len(args) < 4 {
 		errMessage := fmt.Sprintf("SET_PX command expects %d variables but %d given", 4, len(args))
-		log.Printf(errMessage)
+		log.Print(errMessage)
 		return constants.DataRepr{
 			Type:  constants.ERROR,
 			Data:  []byte(errMessage),

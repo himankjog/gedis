@@ -8,10 +8,6 @@ import (
 	"github.com/codecrafters-io/redis-starter-go/app/constants"
 )
 
-const (
-	CRLF = "\r\n"
-)
-
 func Encode(data constants.DataRepr) []byte {
 	log.Printf("Encoding response from data: %q", data)
 	encodedResponse := encode(data)
@@ -41,39 +37,39 @@ func encodeString(data []byte) string {
 	encodedString := string(data)
 	log.Printf("Encoded string value as: %s", encodedString)
 
-	return string(constants.STRING) + encodedString + CRLF
+	return string(constants.STRING) + encodedString + constants.CRLF
 }
 
 func encodeBulkString(data []byte) string {
 	if data == nil {
 		log.Printf("Encoding null bulk string")
-		return string(constants.BULK) + strconv.Itoa(-1) + CRLF
+		return string(constants.BULK) + strconv.Itoa(-1) + constants.CRLF
 	}
 	bulkString := string(data)
 	bulkStringLength := len(bulkString)
-	encodedBulkString := strconv.Itoa(bulkStringLength) + CRLF + bulkString
+	encodedBulkString := strconv.Itoa(bulkStringLength) + constants.CRLF + bulkString
 	log.Printf("Encoded bulk string: %s", encodedBulkString)
 
-	return string(constants.BULK) + encodedBulkString + CRLF
+	return string(constants.BULK) + encodedBulkString + constants.CRLF
 }
 
 func encodeError(data []byte) string {
 	encodedErrorString := string(data)
 	log.Printf("Encoded error string: %s", encodedErrorString)
 
-	return string(constants.ERROR) + encodedErrorString + CRLF
+	return string(constants.ERROR) + encodedErrorString + constants.CRLF
 }
 
 func encodeInteger(data []byte) string {
 	integerVal, _ := strconv.Atoi(string(data))
 	log.Printf("Encoded integer value as: %d", integerVal)
 
-	return string(constants.INTEGER) + strconv.Itoa(integerVal) + CRLF
+	return string(constants.INTEGER) + strconv.Itoa(integerVal) + constants.CRLF
 }
 
 func encodeArray(dataArray []constants.DataRepr) string {
 	arrayLength := len(dataArray)
-	encodedArrayString := string(constants.ARRAY) + strconv.Itoa(arrayLength) + CRLF
+	encodedArrayString := string(constants.ARRAY) + strconv.Itoa(arrayLength) + constants.CRLF
 
 	for _, data := range dataArray {
 		encodedDataString := encode(data)
