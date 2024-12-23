@@ -5,6 +5,7 @@ import (
 	"log"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/codecrafters-io/redis-starter-go/app/constants"
 	"github.com/codecrafters-io/redis-starter-go/app/parser"
@@ -112,7 +113,7 @@ func handleSetCommand(args []constants.DataRepr) constants.DataRepr {
 	}
 	key := string(args[0].Data)
 	value := parser.Encode(args[1])
-	err := persistence.Persist(key, string(value))
+	err := persistence.Persist(key, string(value), persistence.SetOptions{})
 
 	if err != nil {
 		log.Printf("Error while handling SET command: %v", err.Error())
@@ -155,7 +156,10 @@ func handleSetPxCommand(args []constants.DataRepr) constants.DataRepr {
 			Array: nil,
 		}
 	}
-	err = persistence.PersistWithExpiry(key, string(value), expiryDurationInMilli)
+	setOptions := persistence.SetOptions{
+		ExpiryDuration: time.Duration(expiryDurationInMilli) * time.Millisecond,
+	}
+	err = persistence.Persist(key, string(value), setOptions)
 
 	if err != nil {
 		log.Printf("Error while handling SET_PX command: %v", err.Error())
