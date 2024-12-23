@@ -10,3 +10,12 @@ const (
 const (
 	PONG_RESPONSE = "PONG"
 )
+
+const (
+	SUB_COMMAND_FORMAT = "%s_%s"
+)
+
+// Sub-commands
+const (
+	SET_PX_COMMAND = "SET_PX"
+)

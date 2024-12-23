@@ -3,6 +3,7 @@ package handlers
 import (
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
 
 	"github.com/codecrafters-io/redis-starter-go/app/constants"
@@ -22,6 +23,9 @@ func init() {
 	commandRegistry[constants.ECHO_COMMAND] = handleEchoCommand
 	commandRegistry[constants.GET_COMMAND] = handleGetCommand
 	commandRegistry[constants.SET_COMMAND] = handleSetCommand
+
+	// Sub-commands
+	commandRegistry[constants.SET_PX_COMMAND] = handleSetPxCommand
 }
 
 func ExecuteCommand(cmd string, args []constants.DataRepr) constants.DataRepr {
@@ -77,10 +81,10 @@ func handleGetCommand(args []constants.DataRepr) constants.DataRepr {
 		}
 	}
 	key := string(args[0].Data)
-	value, err := persistence.Fetch(key)
+	value, valueExists := persistence.Fetch(key)
 
-	if err != nil {
-		log.Printf("Error while handling GET command: %v", err.Error())
+	if !valueExists {
+		log.Printf("Unable to GET value for key %s", key)
 		return constants.DataRepr{
 			Type:  constants.BULK,
 			Data:  nil,
@@ -102,9 +106,12 @@ func handleSetCommand(args []constants.DataRepr) constants.DataRepr {
 			Array: nil,
 		}
 	}
+	if len(args) > 2 {
+		sub_command := fmt.Sprintf(constants.SUB_COMMAND_FORMAT, constants.SET_COMMAND, string(args[2].Data))
+		return ExecuteCommand(sub_command, args)
+	}
 	key := string(args[0].Data)
 	value := parser.Encode(args[1])
-
 	err := persistence.Persist(key, string(value))
 
 	if err != nil {
@@ -116,6 +123,49 @@ func handleSetCommand(args []constants.DataRepr) constants.DataRepr {
 		}
 	}
 	log.Printf("Successfully persisted data: '%s'  against key: %s", value, key)
+	return constants.DataRepr{
+		Type:  constants.STRING,
+		Data:  []byte("OK"),
+		Array: nil,
+	}
+}
+
+// Sub-command handler space
+
+func handleSetPxCommand(args []constants.DataRepr) constants.DataRepr {
+	if len(args) < 4 {
+		errMessage := fmt.Sprintf("SET_PX command expects %d variables but %d given", 4, len(args))
+		log.Printf(errMessage)
+		return constants.DataRepr{
+			Type:  constants.ERROR,
+			Data:  []byte(errMessage),
+			Array: nil,
+		}
+	}
+
+	key := string(args[0].Data)
+	value := parser.Encode(args[1])
+	expiryDurationInMilli, err := strconv.Atoi(string(args[3].Data))
+
+	if err != nil {
+		log.Printf("Error while handling SET_PX command: %v", err.Error())
+		return constants.DataRepr{
+			Type:  constants.BULK,
+			Data:  nil,
+			Array: nil,
+		}
+	}
+	err = persistence.PersistWithExpiry(key, string(value), expiryDurationInMilli)
+
+	if err != nil {
+		log.Printf("Error while handling SET_PX command: %v", err.Error())
+		return constants.DataRepr{
+			Type:  constants.BULK,
+			Data:  nil,
+			Array: nil,
+		}
+	}
+	log.Printf("Successfully persisted data: '%s'  against key: '%s' with millseconds expiry duration '%d'", value, key, expiryDurationInMilli)
 	return constants.DataRepr{
 		Type:  constants.STRING,
 		Data:  []byte("OK"),
