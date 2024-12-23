@@ -1,6 +1,7 @@
 package persistence
 
 import (
+	"fmt"
 	"log"
 	"time"
 )
@@ -19,6 +20,7 @@ var MEMORY_MAP map[string]Value
 
 func init() {
 	MEMORY_MAP = make(map[string]Value)
+	go garbageCollector()
 }
 
 func Persist(key string, value string, options SetOptions) error {
@@ -53,4 +55,19 @@ func Fetch(key string) (string, bool) {
 	log.Printf("Value '%s' against  key '%s' has expired", value.Value, key)
 	delete(MEMORY_MAP, key)
 	return "", false
+}
+
+func garbageCollector() {
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		now := time.Now()
+		for key, val := range MEMORY_MAP {
+			if val.Expirable && now.After(val.ExpirationTime) {
+				delete(MEMORY_MAP, key)
+				fmt.Println("Deleted expired key:", key)
+			}
+		}
+	}
 }
