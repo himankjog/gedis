@@ -10,6 +10,7 @@ import (
 	"github.com/codecrafters-io/redis-starter-go/app/constants"
 	"github.com/codecrafters-io/redis-starter-go/app/parser"
 	"github.com/codecrafters-io/redis-starter-go/app/persistence"
+	"github.com/codecrafters-io/redis-starter-go/app/server"
 )
 
 type CommandHandler func([]constants.DataRepr) constants.DataRepr
@@ -17,6 +18,7 @@ type CommandHandler func([]constants.DataRepr) constants.DataRepr
 type CommandRegistry map[string]CommandHandler
 
 var commandRegistry CommandRegistry
+var serverInstance *server.Server
 
 func init() {
 	commandRegistry = make(CommandRegistry)
@@ -28,6 +30,10 @@ func init() {
 
 	// Sub-commands
 	commandRegistry[constants.SET_PX_COMMAND] = handleSetPxCommand
+}
+
+func AddServer(s *server.Server) {
+	serverInstance = s
 }
 
 func ExecuteCommand(cmd string, args []constants.DataRepr) constants.DataRepr {
@@ -133,7 +139,7 @@ func handleSetCommand(args []constants.DataRepr) constants.DataRepr {
 }
 
 func handleInfoCommand(args []constants.DataRepr) constants.DataRepr {
-	response := []byte("role:master")
+	response := []byte(fmt.Sprintf("role:%s", serverInstance.ReplicationConfig.Role))
 	return constants.DataRepr{
 		Type: constants.BULK,
 		Data: response,

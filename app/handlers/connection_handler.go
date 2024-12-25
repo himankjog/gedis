@@ -8,6 +8,7 @@ import (
 	"os"
 	"syscall"
 
+	"github.com/codecrafters-io/redis-starter-go/app/server"
 	"github.com/codecrafters-io/redis-starter-go/app/utils/bimap"
 	"github.com/google/uuid"
 )
@@ -15,7 +16,7 @@ import (
 var CONN_FILE_DESC_BI_MAP = bimap.New[int, net.Conn]()
 var EPOLL_FD = -1
 
-func StartEventLoop(listener net.Listener) {
+func StartEventLoop(serverInstance *server.Server) {
 	var err error
 	EPOLL_FD, err = syscall.EpollCreate1(0)
 
@@ -23,7 +24,7 @@ func StartEventLoop(listener net.Listener) {
 		log.Fatalf("Error creating epoll: %v", err.Error())
 	}
 
-	go acceptConnections(listener)
+	go acceptConnections((*serverInstance).Listener)
 
 	events := make([]syscall.EpollEvent, 100)
 
