@@ -5,6 +5,7 @@ const (
 	ECHO_COMMAND = "ECHO"
 	GET_COMMAND  = "GET"
 	SET_COMMAND  = "SET"
+	INFO_COMMAND = "INFO"
 )
 
 const (

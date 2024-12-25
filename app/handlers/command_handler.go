@@ -24,6 +24,7 @@ func init() {
 	commandRegistry[constants.ECHO_COMMAND] = handleEchoCommand
 	commandRegistry[constants.GET_COMMAND] = handleGetCommand
 	commandRegistry[constants.SET_COMMAND] = handleSetCommand
+	commandRegistry[constants.INFO_COMMAND] = handleInfoCommand
 
 	// Sub-commands
 	commandRegistry[constants.SET_PX_COMMAND] = handleSetPxCommand
@@ -128,6 +129,14 @@ func handleSetCommand(args []constants.DataRepr) constants.DataRepr {
 		Type:  constants.STRING,
 		Data:  []byte("OK"),
 		Array: nil,
+	}
+}
+
+func handleInfoCommand(args []constants.DataRepr) constants.DataRepr {
+	response := []byte("role:master")
+	return constants.DataRepr{
+		Type: constants.BULK,
+		Data: response,
 	}
 }
 
