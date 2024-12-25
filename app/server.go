@@ -22,7 +22,7 @@ func main() {
 	listener := getListener(serverAddress)
 	defer listener.Close()
 
-	log.Println("Listening on address: ", ADDRESS)
+	log.Println("Listening on address: ", serverAddress)
 
 	handlers.StartEventLoop(listener)
 }
