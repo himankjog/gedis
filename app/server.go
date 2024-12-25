@@ -1,6 +1,8 @@
 package main
 
 import (
+	"flag"
+	"fmt"
 	"log"
 	"net"
 
@@ -8,11 +10,16 @@ import (
 )
 
 const (
-	ADDRESS = "0.0.0.0:6379"
+	ADDRESS = "0.0.0.0"
+	PORT    = "6379"
 )
 
 func main() {
-	listener := getListener(ADDRESS)
+	port := flag.String("port", PORT, "Gedis listening port")
+	flag.Parse()
+
+	serverAddress := fmt.Sprintf("%s:%s", ADDRESS, *port)
+	listener := getListener(serverAddress)
 	defer listener.Close()
 
 	log.Println("Listening on address: ", ADDRESS)
