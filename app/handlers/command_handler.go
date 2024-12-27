@@ -139,7 +139,11 @@ func handleSetCommand(args []constants.DataRepr) constants.DataRepr {
 }
 
 func handleInfoCommand(args []constants.DataRepr) constants.DataRepr {
-	response := []byte(fmt.Sprintf("role:%s", serverInstance.ReplicationConfig.Role))
+	response := []byte(fmt.Sprintf("role:%s\nmaster_replid:%s\nmaster_repl_offset:%d",
+		serverInstance.ReplicationConfig.Role,
+		serverInstance.ReplicationConfig.MasterReplId,
+		serverInstance.ReplicationConfig.MasterReplOffset,
+	))
 	return constants.DataRepr{
 		Type: constants.BULK,
 		Data: response,

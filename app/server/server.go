@@ -59,6 +59,9 @@ func initializeServer() *Server {
 
 	serverInstance.ServerAddress = fmt.Sprintf("%s:%s", DEFAULT_ADDRESS, serverInstance.ListeningPort)
 	serverInstance.Listener = getListener(serverInstance.ServerAddress)
+	// TODO: Update following configurations once communication with master is established
+	serverInstance.ReplicationConfig.MasterReplId = "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb"
+	serverInstance.ReplicationConfig.MasterReplOffset = 0
 
 	return &serverInstance
 }
