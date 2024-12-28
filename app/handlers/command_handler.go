@@ -11,6 +11,7 @@ import (
 	"github.com/codecrafters-io/redis-starter-go/app/parser"
 	"github.com/codecrafters-io/redis-starter-go/app/persistence"
 	"github.com/codecrafters-io/redis-starter-go/app/server"
+	requestUtils "github.com/codecrafters-io/redis-starter-go/app/utils/request"
 )
 
 type CommandHandler func([]constants.DataRepr) constants.DataRepr
@@ -27,6 +28,7 @@ func init() {
 	commandRegistry[constants.GET_COMMAND] = handleGetCommand
 	commandRegistry[constants.SET_COMMAND] = handleSetCommand
 	commandRegistry[constants.INFO_COMMAND] = handleInfoCommand
+	commandRegistry[constants.REPLCONF_COMMAND] = handleReplconfCommand
 
 	// Sub-commands
 	commandRegistry[constants.SET_PX_COMMAND] = handleSetPxCommand
@@ -148,6 +150,11 @@ func handleInfoCommand(args []constants.DataRepr) constants.DataRepr {
 		Type: constants.BULK,
 		Data: response,
 	}
+}
+
+func handleReplconfCommand(args []constants.DataRepr) constants.DataRepr {
+	// Todo: Handle command parameters
+	return requestUtils.CreateStringResponse("OK")
 }
 
 // Sub-command handler space
