@@ -29,6 +29,7 @@ func init() {
 	commandRegistry[constants.SET_COMMAND] = handleSetCommand
 	commandRegistry[constants.INFO_COMMAND] = handleInfoCommand
 	commandRegistry[constants.REPLCONF_COMMAND] = handleReplconfCommand
+	commandRegistry[constants.PSYNC_COMMAND] = handlePsyncCommand
 
 	// Sub-commands
 	commandRegistry[constants.SET_PX_COMMAND] = handleSetPxCommand
@@ -51,7 +52,7 @@ func ExecuteCommand(cmd string, args []constants.DataRepr) constants.DataRepr {
 			Array: nil,
 		}
 	}
-	log.Printf("Handling command: %s", cmd)
+	log.Printf("[%s] Handling command: %s", (*serverInstance).ServerAddress, cmd)
 	return commandHandler(args)
 }
 
@@ -155,6 +156,13 @@ func handleInfoCommand(args []constants.DataRepr) constants.DataRepr {
 func handleReplconfCommand(args []constants.DataRepr) constants.DataRepr {
 	// Todo: Handle command parameters
 	return requestUtils.CreateStringResponse("OK")
+}
+
+func handlePsyncCommand(args []constants.DataRepr) constants.DataRepr {
+	// TODO: Parse arguments to fetch replId and offset
+	responseData := fmt.Sprintf("FULLRESYNC %s %d",
+		(*serverInstance).ReplicationConfig.MasterReplId, (*serverInstance).ReplicationConfig.MasterReplOffset)
+	return requestUtils.CreateStringResponse(responseData)
 }
 
 // Sub-command handler space
