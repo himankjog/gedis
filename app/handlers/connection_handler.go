@@ -181,6 +181,10 @@ func initiateHandShakeWithMaster(serverInstance *server.Server) (net.Conn, error
 			fmt.Errorf("[%s] Error while decoding for response from master (%s) for command [%s]: %v", hostServerAddress, masterServerAddress, cmd, err.Error())
 			return nil, err
 		}
+		if cmd == constants.PSYNC_COMMAND {
+			// TODO: Validate PSYNC response
+			continue
+		}
 		if !handshakeStep.ExpectedResponse.IsEqual(decodedResponseFromMaster) {
 			fmt.Errorf("[%s] Unexpected response from master (%s) for command [%s]: %+v", hostServerAddress, masterServerAddress, cmd, decodedResponseFromMaster)
 			return nil, err
@@ -206,6 +210,11 @@ func createHandshakePipeline(serverInstance *server.Server) []HandshakeStep {
 	handshakePipeline = append(handshakePipeline, HandshakeStep{
 		CommandName:      constants.REPLCONF_COMMAND,
 		Request:          requestUtils.CreateRequestForCommand(constants.REPLCONF_COMMAND, constants.REPLCONF_CAPA_PARAM, constants.REPLCONF_PSYNC2_PARAM),
+		ExpectedResponse: ok_response,
+	})
+	handshakePipeline = append(handshakePipeline, HandshakeStep{
+		CommandName:      constants.PSYNC_COMMAND,
+		Request:          requestUtils.CreateRequestForCommand(constants.PSYNC_COMMAND, constants.PSYNC_UNKNOWN_REPLICATION_ID_PARAM, constants.PSYNC_UNKNOWN_MASTER_OFFSET),
 		ExpectedResponse: ok_response,
 	})
 

@@ -33,13 +33,13 @@ const (
 
 // Command Constants
 const (
-	PING_COMMAND = "PING"
-	ECHO_COMMAND = "ECHO"
-	GET_COMMAND  = "GET"
-	SET_COMMAND  = "SET"
-	INFO_COMMAND = "INFO"
-
+	PING_COMMAND     = "PING"
+	ECHO_COMMAND     = "ECHO"
+	GET_COMMAND      = "GET"
+	SET_COMMAND      = "SET"
+	INFO_COMMAND     = "INFO"
 	REPLCONF_COMMAND = "REPLCONF"
+	PSYNC_COMMAND    = "PSYNC"
 )
 
 const (
@@ -53,10 +53,12 @@ const (
 
 // Sub-commands
 const (
-	SET_PX_COMMAND                = "SET_PX"
-	REPLCONF_LISTENING_PORT_PARAM = "listening-port"
-	REPLCONF_CAPA_PARAM           = "capa"
-	REPLCONF_PSYNC2_PARAM         = "psync2"
+	SET_PX_COMMAND                     = "SET_PX"
+	REPLCONF_LISTENING_PORT_PARAM      = "listening-port"
+	REPLCONF_CAPA_PARAM                = "capa"
+	REPLCONF_PSYNC2_PARAM              = "psync2"
+	PSYNC_UNKNOWN_REPLICATION_ID_PARAM = "?"
+	PSYNC_UNKNOWN_MASTER_OFFSET        = "-1"
 )
 
 func (d1 DataRepr) IsEqual(d2 DataRepr) bool {
