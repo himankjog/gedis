@@ -38,11 +38,13 @@ const (
 	GET_COMMAND  = "GET"
 	SET_COMMAND  = "SET"
 	INFO_COMMAND = "INFO"
+
+	REPLCONF_COMMAND = "REPLCONF"
 )
 
 const (
-	PONG_RESPONSE         = "PONG"
-	ENCODED_PONG_RESPONSE = string(STRING) + PONG_RESPONSE + CRLF
+	PONG_RESPONSE = "PONG"
+	OK_RESPONSE   = "OK"
 )
 
 const (
@@ -51,7 +53,10 @@ const (
 
 // Sub-commands
 const (
-	SET_PX_COMMAND = "SET_PX"
+	SET_PX_COMMAND                = "SET_PX"
+	REPLCONF_LISTENING_PORT_PARAM = "listening-port"
+	REPLCONF_CAPA_PARAM           = "capa"
+	REPLCONF_PSYNC2_PARAM         = "psync2"
 )
 
 func (d1 DataRepr) IsEqual(d2 DataRepr) bool {

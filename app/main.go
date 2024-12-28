@@ -12,7 +12,7 @@ func main() {
 	defer (*serverInstance).Listener.Close()
 
 	log.Printf("Listening on address: %s", (*serverInstance).ServerAddress)
-	log.Printf("Replication role: %s", (*serverInstance).ReplicaOf)
+	log.Printf("Replication role: %s", (*serverInstance).ReplicationConfig.Role)
 
 	handlers.AddServer(serverInstance)
 	handlers.StartEventLoop(serverInstance)

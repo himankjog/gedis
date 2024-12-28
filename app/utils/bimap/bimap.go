@@ -1,11 +1,11 @@
-package bimap
+package utils
 
 type BiMap[K comparable, V comparable] struct {
 	lookupMap        map[K]V
 	reverseLookupMap map[V]K
 }
 
-func New[K comparable, V comparable]() *BiMap[K, V] {
+func NewBiMap[K comparable, V comparable]() *BiMap[K, V] {
 	return &BiMap[K, V]{
 		lookupMap:        make(map[K]V),
 		reverseLookupMap: make(map[V]K),

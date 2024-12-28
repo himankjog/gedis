@@ -9,7 +9,7 @@ import (
 )
 
 func Encode(data constants.DataRepr) []byte {
-	log.Printf("Encoding response from data: %q", data)
+	log.Printf("Encoding data: %q", data)
 	encodedResponse := encode(data)
 	return []byte(encodedResponse)
 }

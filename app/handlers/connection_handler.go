@@ -13,11 +13,18 @@ import (
 	"github.com/codecrafters-io/redis-starter-go/app/constants"
 	"github.com/codecrafters-io/redis-starter-go/app/parser"
 	"github.com/codecrafters-io/redis-starter-go/app/server"
-	"github.com/codecrafters-io/redis-starter-go/app/utils/bimap"
+	bimap "github.com/codecrafters-io/redis-starter-go/app/utils/bimap"
+	requestUtils "github.com/codecrafters-io/redis-starter-go/app/utils/request"
 	"github.com/google/uuid"
 )
 
-var CONN_FILE_DESC_BI_MAP = bimap.New[int, net.Conn]()
+type HandshakeStep struct {
+	CommandName      string
+	Request          constants.DataRepr
+	ExpectedResponse constants.DataRepr
+}
+
+var CONN_FILE_DESC_BI_MAP = bimap.NewBiMap[int, net.Conn]()
 var EPOLL_FD = -1
 
 func StartEventLoop(serverInstance *server.Server) {
@@ -146,39 +153,63 @@ func initiateHandShakeWithMaster(serverInstance *server.Server) (net.Conn, error
 		fmt.Errorf("[%s] Error while trying to establish connection with master (%s): %v", hostServerAddress, masterServerAddress, err.Error())
 		return nil, err
 	}
-	// TODO: Make handshake command logic generic for commands to be sent to master from current host
-	// Send PING to master
-	pingRequest := createPingRequest()
-	writeDataToConnection(conn, pingRequest)
-	responseFromMaster, err := fetchDataFromConnection(conn)
-	if err != nil {
-		fmt.Errorf("[%s] Error while waiting for response of PING from master (%s): %v", hostServerAddress, masterServerAddress, err.Error())
-		return nil, err
-	}
-	if len(responseFromMaster) == 0 {
-		errMessage := fmt.Sprintf("[%s] Empty response received for PING from master (%s): %v", hostServerAddress, masterServerAddress, err.Error())
-		fmt.Errorf(errMessage)
-		return nil, errors.New(errMessage)
-	}
-	log.Printf("[%s] Received response for PING request from master (%s): %q", hostServerAddress, masterServerAddress, responseFromMaster)
-	if string(responseFromMaster) != constants.ENCODED_PONG_RESPONSE {
-		fmt.Errorf("[%s] Unexpected response for PING from master (%s): %v", hostServerAddress, masterServerAddress, err.Error())
-		return nil, err
+	handshakePipeline := createHandshakePipeline(serverInstance)
+	for _, handshakeStep := range handshakePipeline {
+		cmd := handshakeStep.CommandName
+		log.Printf("[%s] Beginning the handshake step with master (%s) using command [%s]", hostServerAddress, masterServerAddress, cmd)
+
+		err := writeDataToConnection(conn, handshakeStep.Request)
+		if err != nil {
+			fmt.Errorf("[%s] Error while trying to send command [%s] master (%s): %v", hostServerAddress, cmd, masterServerAddress, err.Error())
+			return nil, err
+		}
+
+		responseFromMaster, err := fetchDataFromConnection(conn)
+		if err != nil {
+			fmt.Errorf("[%s] Error while waiting for response from master (%s) for command [%s]: %v", hostServerAddress, masterServerAddress, cmd, err.Error())
+			return nil, err
+		}
+		if len(responseFromMaster) == 0 {
+			errMessage := fmt.Sprintf("[%s] Empty response received from master (%s) for command [%s]: %v", hostServerAddress, masterServerAddress, cmd, err.Error())
+			fmt.Errorf(errMessage)
+			return nil, errors.New(errMessage)
+		}
+		log.Printf("[%s] Received response from master (%s) for command [%s]: %q", hostServerAddress, masterServerAddress, cmd, responseFromMaster)
+
+		decodedResponseFromMaster, err := parser.Decode(responseFromMaster)
+		if err != nil {
+			fmt.Errorf("[%s] Error while decoding for response from master (%s) for command [%s]: %v", hostServerAddress, masterServerAddress, cmd, err.Error())
+			return nil, err
+		}
+		if !handshakeStep.ExpectedResponse.IsEqual(decodedResponseFromMaster) {
+			fmt.Errorf("[%s] Unexpected response from master (%s) for command [%s]: %+v", hostServerAddress, masterServerAddress, cmd, decodedResponseFromMaster)
+			return nil, err
+		}
 	}
 	log.Printf("[%s] Partial handshake completed with master (%s)", hostServerAddress, masterServerAddress)
 	return conn, nil
 }
 
-func createPingRequest() constants.DataRepr {
-	pingCommand := constants.DataRepr{
-		Type: constants.BULK,
-		Data: []byte(constants.PING_COMMAND),
-	}
+func createHandshakePipeline(serverInstance *server.Server) []HandshakeStep {
+	handshakePipeline := []HandshakeStep{}
+	handshakePipeline = append(handshakePipeline, HandshakeStep{
+		CommandName:      constants.PING_COMMAND,
+		Request:          requestUtils.CreateRequestForCommand(constants.PING_COMMAND),
+		ExpectedResponse: requestUtils.CreateStringResponse(constants.PONG_RESPONSE),
+	})
+	ok_response := requestUtils.CreateStringResponse(constants.OK_RESPONSE)
+	handshakePipeline = append(handshakePipeline, HandshakeStep{
+		CommandName:      constants.REPLCONF_COMMAND,
+		Request:          requestUtils.CreateRequestForCommand(constants.REPLCONF_COMMAND, constants.REPLCONF_LISTENING_PORT_PARAM, (serverInstance).ListeningPort),
+		ExpectedResponse: ok_response,
+	})
+	handshakePipeline = append(handshakePipeline, HandshakeStep{
+		CommandName:      constants.REPLCONF_COMMAND,
+		Request:          requestUtils.CreateRequestForCommand(constants.REPLCONF_COMMAND, constants.REPLCONF_CAPA_PARAM, constants.REPLCONF_PSYNC2_PARAM),
+		ExpectedResponse: ok_response,
+	})
 
-	return constants.DataRepr{
-		Type:  constants.ARRAY,
-		Array: []constants.DataRepr{pingCommand},
-	}
+	return handshakePipeline
 }
 
 func getConnectionFileDescriptor(conn net.Conn) int {
@@ -221,12 +252,14 @@ func closeConnection(conn net.Conn) {
 	log.Printf("[%s] Connection closed", conn.RemoteAddr())
 }
 
-func writeDataToConnection(conn net.Conn, data constants.DataRepr) {
-	encodedResponse := parser.Encode(data)
-	_, err := conn.Write(encodedResponse)
+func writeDataToConnection(conn net.Conn, data constants.DataRepr) error {
+	encodedData := parser.Encode(data)
+	log.Printf("[%s] Begin writing data '%q' to connection", conn.RemoteAddr(), encodedData)
+	_, err := conn.Write(encodedData)
 	if err != nil {
-		log.Printf("[%s] Error writing response to connection: %v", conn.RemoteAddr(), err.Error())
-		return
+		fmt.Errorf("[%s] Error writing data '%q' to connection: %v", conn.RemoteAddr(), encodedData, err.Error())
+		return err
 	}
-	log.Printf("[%s] Successfully sent response: %q", conn.RemoteAddr(), encodedResponse)
+	log.Printf("[%s] Successfully written data '%q' to connection", conn.RemoteAddr(), encodedData)
+	return nil
 }
