@@ -14,12 +14,7 @@ type Request struct {
 	RequestId uuid.UUID
 }
 
-const (
-	PONG         = "+PONG\r\n"
-	PING_REQUEST = "PING\r\n"
-)
-
-func ProcessRequest(request Request) []byte {
+func ProcessRequest(request Request) constants.DataRepr {
 	requestData, requestId := request.Data, request.RequestId
 
 	decodedRequestData, err := parser.Decode(requestData)
@@ -33,7 +28,7 @@ func ProcessRequest(request Request) []byte {
 	return processRequest(decodedRequestData, requestId)
 }
 
-func processRequest(decodedRequestData constants.DataRepr, requestId uuid.UUID) []byte {
+func processRequest(decodedRequestData constants.DataRepr, requestId uuid.UUID) constants.DataRepr {
 	// Request is always going to be an ARRAY type and first element of array will be a command decoded as a bulk string
 	// For example: "PING" becomes *1\r\n$4\r\nPING\r\n
 	// "ECHO hey" becomes *2\r\n$4\r\nECHO\r\n$3\r\nhey\r\n
@@ -48,15 +43,13 @@ func processRequest(decodedRequestData constants.DataRepr, requestId uuid.UUID) 
 
 	response := ExecuteCommand(command, args)
 	log.Printf("[%s] Response post processing request: %q", requestId.String(), response)
-	return parser.Encode(response)
+	return response
 }
 
-func errorResponse(errMessage string) []byte {
-	return parser.Encode(
-		constants.DataRepr{
-			Type:  constants.ERROR,
-			Data:  []byte(errMessage),
-			Array: nil,
-		},
-	)
+func errorResponse(errMessage string) constants.DataRepr {
+	return constants.DataRepr{
+		Type:  constants.ERROR,
+		Data:  []byte(errMessage),
+		Array: nil,
+	}
 }

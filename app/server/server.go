@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"strings"
+
+	"github.com/codecrafters-io/redis-starter-go/app/constants"
 )
 
 type ServerReplicationConfig struct {
@@ -17,6 +20,7 @@ type ServerReplicationConfig struct {
 	ReplBacklogSize            int
 	ReplBacklogFirstByteOffset int
 	ReplBacklogHistlen         int
+	MasterServerAddress        string
 }
 
 type Server struct {
@@ -27,13 +31,6 @@ type Server struct {
 	ServerAddress     string
 }
 
-const (
-	DEFAULT_ADDRESS = "0.0.0.0"
-	DEFAULT_PORT    = "6379"
-	DEFAULT_ROLE    = "master"
-	REPLICA_ROLE    = "slave"
-)
-
 func StartServer() *Server {
 	return initializeServer()
 
@@ -41,28 +38,32 @@ func StartServer() *Server {
 
 func initializeServer() *Server {
 	serverInstance := Server{}
-	port := flag.String("port", DEFAULT_PORT, "Gedis listening port")
+	port := flag.String("port", constants.DEFAULT_SERVER_PORT, "Gedis listening port")
 	replicaof := flag.String("replicaof", "", "Master server address")
 	flag.Parse()
 
 	serverInstance.ListeningPort = *port
 	serverInstance.ReplicaOf = *replicaof
 
-	serverRole := DEFAULT_ROLE
+	serverRole := constants.MASTER_ROLE
+	masterServerAddress := ""
 	if len(serverInstance.ReplicaOf) != 0 {
-		serverRole = REPLICA_ROLE
+		serverRole = constants.REPLICA_ROLE
+		masterServerAddress = strings.Replace(serverInstance.ReplicaOf, " ", ":", 1)
 	}
 
 	serverInstance.ReplicationConfig = ServerReplicationConfig{
-		Role: serverRole,
+		Role:                serverRole,
+		MasterServerAddress: masterServerAddress,
 	}
 
-	serverInstance.ServerAddress = fmt.Sprintf("%s:%s", DEFAULT_ADDRESS, serverInstance.ListeningPort)
+	serverInstance.ServerAddress = fmt.Sprintf("%s:%s", constants.DEFAULT_SERVER_ADDRESS, serverInstance.ListeningPort)
 	serverInstance.Listener = getListener(serverInstance.ServerAddress)
 	// TODO: Update following configurations once communication with master is established
 	serverInstance.ReplicationConfig.MasterReplId = "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb"
 	serverInstance.ReplicationConfig.MasterReplOffset = 0
 
+	log.Printf("[%s] Server state: %+v", serverInstance.ServerAddress, serverInstance)
 	return &serverInstance
 }
 

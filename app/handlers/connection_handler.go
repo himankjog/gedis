@@ -2,12 +2,16 @@ package handlers
 
 import (
 	"bufio"
+	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net"
 	"os"
 	"syscall"
 
+	"github.com/codecrafters-io/redis-starter-go/app/constants"
+	"github.com/codecrafters-io/redis-starter-go/app/parser"
 	"github.com/codecrafters-io/redis-starter-go/app/server"
 	"github.com/codecrafters-io/redis-starter-go/app/utils/bimap"
 	"github.com/google/uuid"
@@ -23,7 +27,7 @@ func StartEventLoop(serverInstance *server.Server) {
 	if err != nil {
 		log.Fatalf("Error creating epoll: %v", err.Error())
 	}
-
+	go handleMasterConnection(serverInstance)
 	go acceptConnections((*serverInstance).Listener)
 
 	events := make([]syscall.EpollEvent, 100)
@@ -41,11 +45,25 @@ func StartEventLoop(serverInstance *server.Server) {
 			connFd := int(events[i].Fd)
 			conn, isConnPresent := CONN_FILE_DESC_BI_MAP.Lookup(connFd)
 			if !isConnPresent {
-				log.Printf("Connection object not found for connection file descriptor: %d. Stopping the event polling for this.", connFd)
-				closeConnectionPoll(connFd)
+				log.Printf("Connection object not found for connection file descriptor: %d. Terminating the connection", connFd)
+				terminateConnection(conn)
 				continue
 			}
-			handleConnection(conn)
+			dataFromConn, err := fetchDataFromConnection(conn)
+			if err != nil {
+				terminateConnection(conn)
+				continue
+			}
+			if len(dataFromConn) == 0 {
+				continue
+			}
+			requestId := uuid.New()
+			log.Printf("[%s] Received request ID '%s' with data: %q", conn.RemoteAddr(), requestId.String(), dataFromConn)
+			response := ProcessRequest(Request{
+				Data:      dataFromConn,
+				RequestId: requestId,
+			})
+			go writeDataToConnection(conn, response)
 		}
 	}
 }
@@ -76,39 +94,91 @@ func acceptConnections(listener net.Listener) {
 	}
 }
 
-func handleConnection(conn net.Conn) {
-	log.Printf("[%s] Started handling connection", conn.RemoteAddr())
+func fetchDataFromConnection(conn net.Conn) ([]byte, error) {
+	log.Printf("[%s] Started reading data from connection", conn.RemoteAddr())
 	reader := bufio.NewReader(conn)
-	requestData := make([]byte, 0, 1024)
+	data := make([]byte, 0, 1024)
 	for {
 		readBuf := make([]byte, 1024)
 		bytesRead, err := reader.Read(readBuf)
 		log.Printf("[%s] Read %d bytes from connection", conn.RemoteAddr(), bytesRead)
 		if err != nil {
-			log.Printf("[%s] Error reading data from: %v", conn.RemoteAddr(), err.Error())
+			fmt.Errorf("[%s] Error reading data from: %v", conn.RemoteAddr(), err.Error())
 			if err != io.EOF {
-				terminateConnection(conn)
+				return nil, err
 			}
 			break
 		}
-		requestData = append(requestData, readBuf[:bytesRead]...)
+		data = append(data, readBuf[:bytesRead]...)
 		if bytesRead < 1024 {
 			// If we don't have anymore data to read, we can safely quit the read loop
 			break
 		}
 	}
-	if len(requestData) < 1 {
-		log.Printf("[%s] Empty request data to process", conn.RemoteAddr())
+	if len(data) < 1 {
+		log.Printf("[%s] No data received from connection", conn.RemoteAddr())
+	}
+
+	return data, nil
+}
+
+func handleMasterConnection(serverInstance *server.Server) {
+	serverRole := (*serverInstance).ReplicationConfig.Role
+	if serverRole == constants.MASTER_ROLE {
 		return
 	}
-	requestId := uuid.New()
-	log.Printf("[%s] Received request ID '%s' with data: %q", conn.RemoteAddr(), requestId.String(), requestData)
-	response := ProcessRequest(Request{
-		Data:      requestData,
-		RequestId: requestId,
-	})
+	serverAddress := (*serverInstance).ServerAddress
+	masterAddress := (*serverInstance).ReplicationConfig.MasterServerAddress
+	_, err := initiateHandShakeWithMaster(serverInstance)
+	if err != nil {
+		log.Fatalf("[%s] Error while trying to initiate handshake with master (%s): %v", serverAddress, masterAddress, err.Error())
+	}
 
-	sendResponse(conn, response)
+	log.Printf("[%s] Handshake completed with master at address: %s", serverAddress, masterAddress)
+}
+
+func initiateHandShakeWithMaster(serverInstance *server.Server) (net.Conn, error) {
+	masterServerAddress := (*serverInstance).ReplicationConfig.MasterServerAddress
+	hostServerAddress := (*serverInstance).ServerAddress
+	conn, err := net.Dial("tcp", masterServerAddress)
+
+	if err != nil {
+		fmt.Errorf("[%s] Error while trying to establish connection with master (%s): %v", hostServerAddress, masterServerAddress, err.Error())
+		return nil, err
+	}
+	// TODO: Make handshake command logic generic for commands to be sent to master from current host
+	// Send PING to master
+	pingRequest := createPingRequest()
+	writeDataToConnection(conn, pingRequest)
+	responseFromMaster, err := fetchDataFromConnection(conn)
+	if err != nil {
+		fmt.Errorf("[%s] Error while waiting for response of PING from master (%s): %v", hostServerAddress, masterServerAddress, err.Error())
+		return nil, err
+	}
+	if len(responseFromMaster) == 0 {
+		errMessage := fmt.Sprintf("[%s] Empty response received for PING from master (%s): %v", hostServerAddress, masterServerAddress, err.Error())
+		fmt.Errorf(errMessage)
+		return nil, errors.New(errMessage)
+	}
+	log.Printf("[%s] Received response for PING request from master (%s): %q", hostServerAddress, masterServerAddress, responseFromMaster)
+	if string(responseFromMaster) != constants.ENCODED_PONG_RESPONSE {
+		fmt.Errorf("[%s] Unexpected response for PING from master (%s): %v", hostServerAddress, masterServerAddress, err.Error())
+		return nil, err
+	}
+	log.Printf("[%s] Partial handshake completed with master (%s)", hostServerAddress, masterServerAddress)
+	return conn, nil
+}
+
+func createPingRequest() constants.DataRepr {
+	pingCommand := constants.DataRepr{
+		Type: constants.BULK,
+		Data: []byte(constants.PING_COMMAND),
+	}
+
+	return constants.DataRepr{
+		Type:  constants.ARRAY,
+		Array: []constants.DataRepr{pingCommand},
+	}
 }
 
 func getConnectionFileDescriptor(conn net.Conn) int {
@@ -151,20 +221,12 @@ func closeConnection(conn net.Conn) {
 	log.Printf("[%s] Connection closed", conn.RemoteAddr())
 }
 
-func sendResponse(conn net.Conn, response []byte) {
-	_, err := conn.Write(response)
+func writeDataToConnection(conn net.Conn, data constants.DataRepr) {
+	encodedResponse := parser.Encode(data)
+	_, err := conn.Write(encodedResponse)
 	if err != nil {
 		log.Printf("[%s] Error writing response to connection: %v", conn.RemoteAddr(), err.Error())
 		return
 	}
-	log.Printf("[%s] Successfully sent response: %q", conn.RemoteAddr(), response)
-}
-
-func sendPongResponse(conn net.Conn) {
-	_, err := conn.Write([]byte(PONG))
-	if err != nil {
-		log.Printf("Error writing data to conn %s: %v", conn.RemoteAddr(), err.Error())
-		return
-	}
-	log.Printf("Sent PONG to %s", conn.RemoteAddr())
+	log.Printf("[%s] Successfully sent response: %q", conn.RemoteAddr(), encodedResponse)
 }
