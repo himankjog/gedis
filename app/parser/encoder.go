@@ -26,6 +26,9 @@ func encode(data constants.DataRepr) string {
 		return encodeError(data.Data)
 	case constants.ARRAY:
 		return encodeArray(data.Array)
+	case constants.RDB_FILE:
+		bulkStringEncoding := encodeBulkString(data.Data)
+		return bulkStringEncoding[:len(bulkStringEncoding)-2]
 	default:
 		errMessage := fmt.Sprintf("Unsupported data type: %q", data.Type)
 		log.Println(errMessage)

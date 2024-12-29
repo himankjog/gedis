@@ -11,18 +11,19 @@ const (
 )
 
 // Parser constants
-type Type byte
+type DataType byte
 
 const (
-	INTEGER = ':'
-	STRING  = '+'
-	BULK    = '$'
-	ARRAY   = '*'
-	ERROR   = '-'
+	INTEGER  = ':'
+	STRING   = '+'
+	BULK     = '$'
+	ARRAY    = '*'
+	ERROR    = '-'
+	RDB_FILE = 'f'
 )
 
 type DataRepr struct {
-	Type  Type
+	Type  DataType
 	Data  []byte
 	Array []DataRepr
 }

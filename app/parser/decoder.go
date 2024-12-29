@@ -100,19 +100,19 @@ func decodeBulkString(data []byte) (constants.DataRepr, error) {
 		log.Printf("Error trying to read bulk string bytes in decodeBulkString: %s", err)
 		return constants.DataRepr{}, err
 	}
-	if readStringLength != bulkStringLength+2 {
+	if readStringLength > bulkStringLength+2 {
 		log.Printf("Error: read string length does not match bulk string length")
 		return constants.DataRepr{}, errors.New("provided length does not match provided data length")
 	}
 
-	if readStringLength > 2 {
-		lastChar := bulkStringBytes[readStringLength-1]
-		secondToLastChar := bulkStringBytes[readStringLength-2]
-		if secondToLastChar != '\r' || lastChar != '\n' {
-			log.Printf("Error: bulk string does not end with CRLF")
-			return constants.DataRepr{}, errors.New("bulk string does not end with CRLF")
-		}
-	}
+	// if readStringLength > 2 {
+	// 	lastChar := bulkStringBytes[readStringLength-1]
+	// 	secondToLastChar := bulkStringBytes[readStringLength-2]
+	// 	if secondToLastChar != '\r' || lastChar != '\n' {
+	// 		log.Printf("Error: bulk string does not end with CRLF")
+	// 		return constants.DataRepr{}, errors.New("bulk string does not end with CRLF")
+	// 	}
+	// }
 
 	return constants.DataRepr{
 		Type:  constants.BULK,

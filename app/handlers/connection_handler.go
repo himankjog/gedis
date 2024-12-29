@@ -110,7 +110,7 @@ func fetchDataFromConnection(conn net.Conn) ([]byte, error) {
 		bytesRead, err := reader.Read(readBuf)
 		log.Printf("[%s] Read %d bytes from connection", conn.RemoteAddr(), bytesRead)
 		if err != nil {
-			fmt.Errorf("[%s] Error reading data from: %v", conn.RemoteAddr(), err.Error())
+			log.Printf("[%s] Error reading data from: %v", conn.RemoteAddr(), err.Error())
 			if err != io.EOF {
 				return nil, err
 			}
@@ -150,7 +150,7 @@ func initiateHandShakeWithMaster(serverInstance *server.Server) (net.Conn, error
 	conn, err := net.Dial("tcp", masterServerAddress)
 
 	if err != nil {
-		fmt.Errorf("[%s] Error while trying to establish connection with master (%s): %v", hostServerAddress, masterServerAddress, err.Error())
+		log.Printf("[%s] Error while trying to establish connection with master (%s): %v", hostServerAddress, masterServerAddress, err.Error())
 		return nil, err
 	}
 	handshakePipeline := createHandshakePipeline(serverInstance)
@@ -158,27 +158,27 @@ func initiateHandShakeWithMaster(serverInstance *server.Server) (net.Conn, error
 		cmd := handshakeStep.CommandName
 		log.Printf("[%s] Beginning the handshake step with master (%s) using command [%s]", hostServerAddress, masterServerAddress, cmd)
 
-		err := writeDataToConnection(conn, handshakeStep.Request)
+		err := writeDataToConnection(conn, []constants.DataRepr{handshakeStep.Request})
 		if err != nil {
-			fmt.Errorf("[%s] Error while trying to send command [%s] master (%s): %v", hostServerAddress, cmd, masterServerAddress, err.Error())
+			log.Printf("[%s] Error while trying to send command [%s] master (%s): %v", hostServerAddress, cmd, masterServerAddress, err.Error())
 			return nil, err
 		}
 
 		responseFromMaster, err := fetchDataFromConnection(conn)
 		if err != nil {
-			fmt.Errorf("[%s] Error while waiting for response from master (%s) for command [%s]: %v", hostServerAddress, masterServerAddress, cmd, err.Error())
+			log.Printf("[%s] Error while waiting for response from master (%s) for command [%s]: %v", hostServerAddress, masterServerAddress, cmd, err.Error())
 			return nil, err
 		}
 		if len(responseFromMaster) == 0 {
 			errMessage := fmt.Sprintf("[%s] Empty response received from master (%s) for command [%s]: %v", hostServerAddress, masterServerAddress, cmd, err.Error())
-			fmt.Errorf(errMessage)
+			log.Printf(errMessage)
 			return nil, errors.New(errMessage)
 		}
 		log.Printf("[%s] Received response from master (%s) for command [%s]: %q", hostServerAddress, masterServerAddress, cmd, responseFromMaster)
 
 		decodedResponseFromMaster, err := parser.Decode(responseFromMaster)
 		if err != nil {
-			fmt.Errorf("[%s] Error while decoding for response from master (%s) for command [%s]: %v", hostServerAddress, masterServerAddress, cmd, err.Error())
+			log.Printf("[%s] Error while decoding for response from master (%s) for command [%s]: %v", hostServerAddress, masterServerAddress, cmd, err.Error())
 			return nil, err
 		}
 		if cmd == constants.PSYNC_COMMAND {
@@ -186,7 +186,7 @@ func initiateHandShakeWithMaster(serverInstance *server.Server) (net.Conn, error
 			continue
 		}
 		if !handshakeStep.ExpectedResponse.IsEqual(decodedResponseFromMaster) {
-			fmt.Errorf("[%s] Unexpected response from master (%s) for command [%s]: %+v", hostServerAddress, masterServerAddress, cmd, decodedResponseFromMaster)
+			log.Printf("[%s] Unexpected response from master (%s) for command [%s]: %+v", hostServerAddress, masterServerAddress, cmd, decodedResponseFromMaster)
 			return nil, err
 		}
 	}
@@ -261,14 +261,16 @@ func closeConnection(conn net.Conn) {
 	log.Printf("[%s] Connection closed", conn.RemoteAddr())
 }
 
-func writeDataToConnection(conn net.Conn, data constants.DataRepr) error {
-	encodedData := parser.Encode(data)
-	log.Printf("[%s] Begin writing data '%q' to connection", conn.RemoteAddr(), encodedData)
-	_, err := conn.Write(encodedData)
-	if err != nil {
-		fmt.Errorf("[%s] Error writing data '%q' to connection: %v", conn.RemoteAddr(), encodedData, err.Error())
-		return err
+func writeDataToConnection(conn net.Conn, dataList []constants.DataRepr) error {
+	for _, data := range dataList {
+		encodedData := parser.Encode(data)
+		log.Printf("[%s] Begin writing data '%q' to connection", conn.RemoteAddr(), encodedData)
+		_, err := conn.Write(encodedData)
+		if err != nil {
+			log.Printf("[%s] Error writing data '%q' to connection: %v", conn.RemoteAddr(), encodedData, err.Error())
+			return err
+		}
+		log.Printf("[%s] Successfully written data '%q' to connection", conn.RemoteAddr(), encodedData)
 	}
-	log.Printf("[%s] Successfully written data '%q' to connection", conn.RemoteAddr(), encodedData)
 	return nil
 }
