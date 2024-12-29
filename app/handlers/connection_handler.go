@@ -24,17 +24,16 @@ type HandshakeStep struct {
 }
 
 var CONN_FILE_DESC_BI_MAP = utils.NewBiMap[int, net.Conn]()
-var EPOLL_FD = -1
+var EPOLL_FD int
 
 func StartEventLoop() {
-	var err error
-	EPOLL_FD, err = syscall.EpollCreate1(0)
+	EPOLL_FD, err := syscall.EpollCreate1(0)
 
 	if err != nil {
 		log.Fatalf("Error creating epoll: %v", err.Error())
 	}
-	go handleMasterConnection(ctx.ServerInstance)
-	go acceptConnections(ctx.ServerInstance.Listener)
+	go handleMasterConnection()
+	go acceptConnections()
 
 	events := make([]syscall.EpollEvent, 100)
 
@@ -74,9 +73,9 @@ func StartEventLoop() {
 	}
 }
 
-func acceptConnections(listener net.Listener) {
+func acceptConnections() {
 	for {
-		conn, err := listener.Accept()
+		conn, err := ctx.ServerInstance.Listener.Accept()
 		if err != nil {
 			log.Println("Error accepting connection: ", err.Error())
 			continue
@@ -128,18 +127,33 @@ func fetchDataFromConnection(conn net.Conn) ([]byte, error) {
 	return data, nil
 }
 
-func handleMasterConnection(serverInstance *server.Server) {
-	serverRole := (*serverInstance).ReplicationConfig.Role
+func handleMasterConnection() {
+	hostServer := ctx.ServerInstance
+	serverRole := hostServer.ReplicationConfig.Role
 	if serverRole == constants.MASTER_ROLE {
 		return
 	}
-	masterAddress := (*serverInstance).ReplicationConfig.MasterServerAddress
-	_, err := initiateHandShakeWithMaster(serverInstance)
+	masterAddress := hostServer.ReplicationConfig.MasterServerAddress
+	masterConn, err := initiateHandShakeWithMaster(hostServer)
 	if err != nil {
 		log.Fatalf("Error while trying to initiate handshake with master (%s): %v", masterAddress, err.Error())
 	}
 
 	ctx.Logger.Printf("Handshake completed with master at address: %s", masterAddress)
+	masterConnFd := getConnectionFileDescriptor(masterConn)
+	ctx.Logger.Printf("For master connection (%s) Got connection file descriptor: %d", masterAddress, masterConnFd)
+
+	CONN_FILE_DESC_BI_MAP.Insert(masterConnFd, masterConn)
+	err = syscall.EpollCtl(EPOLL_FD, syscall.EPOLL_CTL_ADD, masterConnFd, &syscall.EpollEvent{
+		Events: syscall.EPOLLIN,
+		Fd:     int32(masterConnFd),
+	})
+	if err != nil {
+		ctx.Logger.Fatalf("[FATAL] Error adding master connection (%s) to epoll: %v", masterAddress, err.Error())
+		terminateConnection(masterConn)
+	}
+
+	ctx.Logger.Printf("Connection with master (%s) successfully established", masterConn.RemoteAddr())
 }
 
 func initiateHandShakeWithMaster(serverInstance *server.Server) (net.Conn, error) {
