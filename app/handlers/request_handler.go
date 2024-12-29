@@ -2,11 +2,10 @@ package handlers
 
 import (
 	"fmt"
-	"log"
 
 	"github.com/codecrafters-io/redis-starter-go/app/constants"
 	"github.com/codecrafters-io/redis-starter-go/app/parser"
-	requestUtils "github.com/codecrafters-io/redis-starter-go/app/utils/request"
+	"github.com/codecrafters-io/redis-starter-go/app/utils"
 	"github.com/google/uuid"
 )
 
@@ -21,9 +20,9 @@ func ProcessRequest(request Request) []constants.DataRepr {
 	decodedRequestData, err := parser.Decode(requestData)
 
 	if err != nil {
-		errMessage := fmt.Sprintf("[%s] Error while trying to decode request with data '%q' : %v", requestId.String(), requestData, err.Error())
-		log.Println(errMessage)
-		return []constants.DataRepr{requestUtils.CreateErrorResponse(errMessage)}
+		errMessage := fmt.Sprintf("(%s) Error while trying to decode request with data '%q' : %v", requestId.String(), requestData, err.Error())
+		ctx.Logger.Println(errMessage)
+		return []constants.DataRepr{utils.CreateErrorResponse(errMessage)}
 	}
 
 	return processRequest(decodedRequestData, requestId)
@@ -34,15 +33,15 @@ func processRequest(decodedRequestData constants.DataRepr, requestId uuid.UUID) 
 	// For example: "PING" becomes *1\r\n$4\r\nPING\r\n
 	// "ECHO hey" becomes *2\r\n$4\r\nECHO\r\n$3\r\nhey\r\n
 	if decodedRequestData.Type != constants.ARRAY {
-		errMessage := fmt.Sprintf("[%s] Unable to extract command from decoded request data: %q", requestId.String(), decodedRequestData.Data)
-		log.Println(errMessage)
-		return []constants.DataRepr{requestUtils.CreateErrorResponse(errMessage)}
+		errMessage := fmt.Sprintf("(%s) Unable to extract command from decoded request data: %q", requestId.String(), decodedRequestData.Data)
+		ctx.Logger.Println(errMessage)
+		return []constants.DataRepr{utils.CreateErrorResponse(errMessage)}
 	}
 	command := string(decodedRequestData.Array[0].Data)
 	args := decodedRequestData.Array[1:]
-	log.Printf("[%s] Sending command: %s to command handler", requestId.String(), command)
+	ctx.Logger.Printf("(%s) Sending command: %s to command handler", requestId.String(), command)
 
 	response := ExecuteCommand(command, args)
-	log.Printf("[%s] Response post processing request: %q", requestId.String(), response)
+	ctx.Logger.Printf("(%s) Response post processing request: %q", requestId.String(), response)
 	return response
 }

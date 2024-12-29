@@ -2,7 +2,6 @@ package persistence
 
 import (
 	"fmt"
-	"log"
 	"time"
 )
 
@@ -33,26 +32,26 @@ func Persist(key string, value string, options SetOptions) error {
 		valueToPersist.Expirable = true
 		valueToPersist.ExpirationTime = time.Now().Add(options.ExpiryDuration)
 	}
-	log.Printf("For key: %s persisting value: %s", key, value)
+	ctx.Logger.Printf("For key: %s persisting value: %s", key, value)
 	MEMORY_MAP[key] = valueToPersist
 	return nil
 }
 
 func Fetch(key string) (string, bool) {
-	log.Printf("Fetching value for key: %s", key)
+	ctx.Logger.Printf("Fetching value for key: %s", key)
 	value, valueExists := MEMORY_MAP[key]
 	if !valueExists {
-		log.Printf("No value found against key: %s", key)
+		ctx.Logger.Printf("No value found against key: %s", key)
 		return "", false
 	}
 
 	isKeyExpired := (value.Expirable && time.Now().After(value.ExpirationTime))
 	if !isKeyExpired {
 		// If value exists and it hasn't expired, return the value
-		log.Printf("Value fetched for key '%s' is: %s", key, value.Value)
+		ctx.Logger.Printf("Value fetched for key '%s' is: %s", key, value.Value)
 		return value.Value, true
 	}
-	log.Printf("Value '%s' against  key '%s' has expired", value.Value, key)
+	ctx.Logger.Printf("Value '%s' against  key '%s' has expired", value.Value, key)
 	delete(MEMORY_MAP, key)
 	return "", false
 }

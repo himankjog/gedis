@@ -6,6 +6,7 @@ import (
 	"log"
 	"net"
 	"strings"
+	"sync"
 
 	"github.com/codecrafters-io/redis-starter-go/app/constants"
 )
@@ -31,40 +32,48 @@ type Server struct {
 	ServerAddress     string
 }
 
-func StartServer() *Server {
-	return initializeServer()
+var (
+	serverInstance *Server
+	once           sync.Once
+)
+
+func GetServerInstance() *Server {
+	once.Do(func() {
+		serverInstance = initializeServer()
+	})
+	return serverInstance
 
 }
 
 func initializeServer() *Server {
-	serverInstance := Server{}
+	serverObj := Server{}
 	port := flag.String("port", constants.DEFAULT_SERVER_PORT, "Gedis listening port")
 	replicaof := flag.String("replicaof", "", "Master server address")
 	flag.Parse()
 
-	serverInstance.ListeningPort = *port
-	serverInstance.ReplicaOf = *replicaof
+	serverObj.ListeningPort = *port
+	serverObj.ReplicaOf = *replicaof
 
 	serverRole := constants.MASTER_ROLE
 	masterServerAddress := ""
-	if len(serverInstance.ReplicaOf) != 0 {
+	if len(serverObj.ReplicaOf) != 0 {
 		serverRole = constants.REPLICA_ROLE
-		masterServerAddress = strings.Replace(serverInstance.ReplicaOf, " ", ":", 1)
+		masterServerAddress = strings.Replace(serverObj.ReplicaOf, " ", ":", 1)
 	}
 
-	serverInstance.ReplicationConfig = ServerReplicationConfig{
+	serverObj.ReplicationConfig = ServerReplicationConfig{
 		Role:                serverRole,
 		MasterServerAddress: masterServerAddress,
 	}
 
-	serverInstance.ServerAddress = fmt.Sprintf("%s:%s", constants.DEFAULT_SERVER_ADDRESS, serverInstance.ListeningPort)
-	serverInstance.Listener = getListener(serverInstance.ServerAddress)
+	serverObj.ServerAddress = fmt.Sprintf("%s:%s", constants.DEFAULT_SERVER_ADDRESS, serverObj.ListeningPort)
+	serverObj.Listener = getListener(serverObj.ServerAddress)
 	// TODO: Update following configurations once communication with master is established
-	serverInstance.ReplicationConfig.MasterReplId = "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb"
-	serverInstance.ReplicationConfig.MasterReplOffset = 0
+	serverObj.ReplicationConfig.MasterReplId = "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb"
+	serverObj.ReplicationConfig.MasterReplOffset = 0
 
-	log.Printf("[%s] Server state: %+v", serverInstance.ServerAddress, serverInstance)
-	return &serverInstance
+	log.Printf("[%s] Server state: %+v", serverObj.ServerAddress, serverObj)
+	return &serverObj
 }
 
 func getListener(address string) net.Listener {
