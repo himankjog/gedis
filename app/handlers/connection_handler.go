@@ -5,12 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"os"
 	"syscall"
 
 	"github.com/codecrafters-io/redis-starter-go/app/constants"
+	"github.com/codecrafters-io/redis-starter-go/app/context"
 	"github.com/codecrafters-io/redis-starter-go/app/parser"
 	"github.com/codecrafters-io/redis-starter-go/app/server"
 	"github.com/codecrafters-io/redis-starter-go/app/utils"
@@ -23,92 +23,106 @@ type HandshakeStep struct {
 	ExpectedResponse constants.DataRepr
 }
 
-var CONN_FILE_DESC_BI_MAP = utils.NewBiMap[int, net.Conn]()
-var EPOLL_FD int
+type ConnectionHandler struct {
+	connectionFileDescriptorBiMap *utils.BiMap[int, net.Conn]
+	epollFd                       int
+	ctx                           *context.Context
+	requestHandler                *RequestHandler
+}
 
-func StartEventLoop() {
-	EPOLL_FD, err := syscall.EpollCreate1(0)
-
-	if err != nil {
-		log.Fatalf("Error creating epoll: %v", err.Error())
+func InitConnectionHandler(ctx *context.Context, requestHandler *RequestHandler) *ConnectionHandler {
+	connectionHandler := ConnectionHandler{
+		connectionFileDescriptorBiMap: utils.NewBiMap[int, net.Conn](),
+		epollFd:                       -1,
+		ctx:                           ctx,
+		requestHandler:                requestHandler,
 	}
-	go handleMasterConnection()
-	go acceptConnections()
+	return &connectionHandler
+}
+
+func (h *ConnectionHandler) StartEventLoop() {
+	epollFd, err := syscall.EpollCreate1(0)
+	if err != nil {
+		h.ctx.Logger.Fatalf("Error creating epoll: %v", err.Error())
+	}
+	h.epollFd = epollFd
+	go h.handleMasterConnection()
+	go h.acceptConnections()
 
 	events := make([]syscall.EpollEvent, 100)
 
 	for {
-		n, err := syscall.EpollWait(EPOLL_FD, events, -1)
+		n, err := syscall.EpollWait(h.epollFd, events, -1)
 		if err != nil {
-			log.Fatalf("Error waiting for epoll events: %v", err.Error())
+			h.ctx.Logger.Fatalf("Error waiting for epoll events: %v", err.Error())
 		}
-		ctx.Logger.Printf("Epoll has %d events", n)
+		h.ctx.Logger.Printf("Epoll has %d events", n)
 		for i := 0; i < n; i++ {
 			if events[i].Fd == -1 {
 				continue
 			}
 			connFd := int(events[i].Fd)
-			conn, isConnPresent := CONN_FILE_DESC_BI_MAP.Lookup(connFd)
+			conn, isConnPresent := h.connectionFileDescriptorBiMap.Lookup(connFd)
 			if !isConnPresent {
-				ctx.Logger.Printf("Connection object not found for connection file descriptor: %d. Terminating the connection", connFd)
-				terminateConnection(conn)
+				h.ctx.Logger.Printf("Connection object not found for connection file descriptor: %d. Terminating the connection", connFd)
+				h.terminateConnection(conn)
 				continue
 			}
-			dataFromConn, err := fetchDataFromConnection(conn)
+			dataFromConn, err := h.fetchDataFromConnection(conn)
 			if err != nil {
-				terminateConnection(conn)
+				h.terminateConnection(conn)
 				continue
 			}
 			if len(dataFromConn) == 0 {
 				continue
 			}
 			requestId := uuid.New()
-			ctx.Logger.Printf("From connection (%s) received request ID '%s' with data: %q", conn.RemoteAddr(), requestId.String(), dataFromConn)
-			response := ProcessRequest(Request{
+			h.ctx.Logger.Printf("From connection (%s) received request ID '%s' with data: %q", conn.RemoteAddr(), requestId.String(), dataFromConn)
+			response := h.requestHandler.ProcessRequest(Request{
 				Data:      dataFromConn,
 				RequestId: requestId,
 			})
-			go writeDataToConnection(conn, response)
+			go h.writeDataToConnection(conn, response)
 		}
 	}
 }
 
-func acceptConnections() {
+func (h *ConnectionHandler) acceptConnections() {
 	for {
-		conn, err := ctx.ServerInstance.Listener.Accept()
+		conn, err := h.ctx.ServerInstance.Listener.Accept()
 		if err != nil {
-			log.Println("Error accepting connection: ", err.Error())
+			h.ctx.Logger.Println("Error accepting connection: ", err.Error())
 			continue
 		}
 
-		connFd := getConnectionFileDescriptor(conn)
-		ctx.Logger.Printf("For connection (%s) Got connection file descriptor: %d", conn.RemoteAddr(), connFd)
+		connFd := h.getConnectionFileDescriptor(conn)
+		h.ctx.Logger.Printf("For connection (%s) Got connection file descriptor: %d", conn.RemoteAddr(), connFd)
 
-		CONN_FILE_DESC_BI_MAP.Insert(connFd, conn)
-		err = syscall.EpollCtl(EPOLL_FD, syscall.EPOLL_CTL_ADD, connFd, &syscall.EpollEvent{
+		h.connectionFileDescriptorBiMap.Insert(connFd, conn)
+		err = syscall.EpollCtl(h.epollFd, syscall.EPOLL_CTL_ADD, connFd, &syscall.EpollEvent{
 			Events: syscall.EPOLLIN,
 			Fd:     int32(connFd),
 		})
 		if err != nil {
-			ctx.Logger.Printf("Error adding connection (%s) to epoll: %v", conn.RemoteAddr(), err.Error())
-			terminateConnection(conn)
+			h.ctx.Logger.Printf("Error adding connection (%s) to epoll: %v", conn.RemoteAddr(), err.Error())
+			h.terminateConnection(conn)
 			continue
 		}
 
-		ctx.Logger.Printf("Connection with (%s) successfully established", conn.RemoteAddr())
+		h.ctx.Logger.Printf("Connection with (%s) successfully established", conn.RemoteAddr())
 	}
 }
 
-func fetchDataFromConnection(conn net.Conn) ([]byte, error) {
-	ctx.Logger.Printf("Started reading data from connection (%s)", conn.RemoteAddr())
+func (h *ConnectionHandler) fetchDataFromConnection(conn net.Conn) ([]byte, error) {
+	h.ctx.Logger.Printf("Started reading data from connection (%s)", conn.RemoteAddr())
 	reader := bufio.NewReader(conn)
 	data := make([]byte, 0, 1024)
 	for {
 		readBuf := make([]byte, 1024)
 		bytesRead, err := reader.Read(readBuf)
-		ctx.Logger.Printf("From connection (%s) read %d bytes", conn.RemoteAddr(), bytesRead)
+		h.ctx.Logger.Printf("From connection (%s) read %d bytes", conn.RemoteAddr(), bytesRead)
 		if err != nil {
-			ctx.Logger.Printf("From connection (%s) error reading data from: %v", conn.RemoteAddr(), err.Error())
+			h.ctx.Logger.Printf("From connection (%s) error reading data from: %v", conn.RemoteAddr(), err.Error())
 			if err != io.EOF {
 				return nil, err
 			}
@@ -121,75 +135,75 @@ func fetchDataFromConnection(conn net.Conn) ([]byte, error) {
 		}
 	}
 	if len(data) < 1 {
-		ctx.Logger.Printf("From connection (%s) no data received", conn.RemoteAddr())
+		h.ctx.Logger.Printf("From connection (%s) no data received", conn.RemoteAddr())
 	}
 
 	return data, nil
 }
 
-func handleMasterConnection() {
-	hostServer := ctx.ServerInstance
+func (h *ConnectionHandler) handleMasterConnection() {
+	hostServer := h.ctx.ServerInstance
 	serverRole := hostServer.ReplicationConfig.Role
 	if serverRole == constants.MASTER_ROLE {
 		return
 	}
 	masterAddress := hostServer.ReplicationConfig.MasterServerAddress
-	masterConn, err := initiateHandShakeWithMaster(hostServer)
+	masterConn, err := h.initiateHandShakeWithMaster(hostServer)
 	if err != nil {
-		log.Fatalf("Error while trying to initiate handshake with master (%s): %v", masterAddress, err.Error())
+		h.ctx.Logger.Fatalf("Error while trying to initiate handshake with master (%s): %v", masterAddress, err.Error())
 	}
 
-	ctx.Logger.Printf("Handshake completed with master at address: %s", masterAddress)
-	masterConnFd := getConnectionFileDescriptor(masterConn)
-	ctx.Logger.Printf("For master connection (%s) Got connection file descriptor: %d", masterAddress, masterConnFd)
+	h.ctx.Logger.Printf("Handshake completed with master at address: %s", masterAddress)
+	masterConnFd := h.getConnectionFileDescriptor(masterConn)
+	h.ctx.Logger.Printf("For master connection (%s) Got connection file descriptor: %d", masterAddress, masterConnFd)
 
-	CONN_FILE_DESC_BI_MAP.Insert(masterConnFd, masterConn)
-	err = syscall.EpollCtl(EPOLL_FD, syscall.EPOLL_CTL_ADD, masterConnFd, &syscall.EpollEvent{
+	h.connectionFileDescriptorBiMap.Insert(masterConnFd, masterConn)
+	err = syscall.EpollCtl(h.epollFd, syscall.EPOLL_CTL_ADD, masterConnFd, &syscall.EpollEvent{
 		Events: syscall.EPOLLIN,
 		Fd:     int32(masterConnFd),
 	})
 	if err != nil {
-		ctx.Logger.Fatalf("[FATAL] Error adding master connection (%s) to epoll: %v", masterAddress, err.Error())
-		terminateConnection(masterConn)
+		h.ctx.Logger.Fatalf("[FATAL] Error adding master connection (%s) to epoll: %v", masterAddress, err.Error())
+		h.terminateConnection(masterConn)
 	}
 
-	ctx.Logger.Printf("Connection with master (%s) successfully established", masterConn.RemoteAddr())
+	h.ctx.Logger.Printf("Connection with master (%s) successfully established", masterConn.RemoteAddr())
 }
 
-func initiateHandShakeWithMaster(serverInstance *server.Server) (net.Conn, error) {
+func (h *ConnectionHandler) initiateHandShakeWithMaster(serverInstance *server.Server) (net.Conn, error) {
 	masterServerAddress := (*serverInstance).ReplicationConfig.MasterServerAddress
 	conn, err := net.Dial("tcp", masterServerAddress)
 
 	if err != nil {
-		ctx.Logger.Printf("Error while trying to establish connection with master (%s): %v", masterServerAddress, err.Error())
+		h.ctx.Logger.Printf("Error while trying to establish connection with master (%s): %v", masterServerAddress, err.Error())
 		return nil, err
 	}
-	handshakePipeline := createHandshakePipeline(serverInstance)
+	handshakePipeline := h.createHandshakePipeline(serverInstance)
 	for _, handshakeStep := range handshakePipeline {
 		cmd := handshakeStep.CommandName
-		ctx.Logger.Printf("Beginning the handshake step with master (%s) using command (%s)", masterServerAddress, cmd)
+		h.ctx.Logger.Printf("Beginning the handshake step with master (%s) using command (%s)", masterServerAddress, cmd)
 
-		err := writeDataToConnection(conn, []constants.DataRepr{handshakeStep.Request})
+		err := h.writeDataToConnection(conn, []constants.DataRepr{handshakeStep.Request})
 		if err != nil {
-			ctx.Logger.Printf("Error while trying to send command (%s) master (%s): %v", cmd, masterServerAddress, err.Error())
+			h.ctx.Logger.Printf("Error while trying to send command (%s) master (%s): %v", cmd, masterServerAddress, err.Error())
 			return nil, err
 		}
 
-		responseFromMaster, err := fetchDataFromConnection(conn)
+		responseFromMaster, err := h.fetchDataFromConnection(conn)
 		if err != nil {
-			ctx.Logger.Printf("Error while waiting for response from master (%s) for command (%s): %v", masterServerAddress, cmd, err.Error())
+			h.ctx.Logger.Printf("Error while waiting for response from master (%s) for command (%s): %v", masterServerAddress, cmd, err.Error())
 			return nil, err
 		}
 		if len(responseFromMaster) == 0 {
 			errMessage := fmt.Sprintf("Empty response received from master (%s) for command (%s): %v", masterServerAddress, cmd, err.Error())
-			ctx.Logger.Printf(errMessage)
+			h.ctx.Logger.Printf(errMessage)
 			return nil, errors.New(errMessage)
 		}
-		ctx.Logger.Printf("Received response from master (%s) for command (%s): %q", masterServerAddress, cmd, responseFromMaster)
+		h.ctx.Logger.Printf("Received response from master (%s) for command (%s): %q", masterServerAddress, cmd, responseFromMaster)
 
 		decodedResponseFromMaster, err := parser.Decode(responseFromMaster)
 		if err != nil {
-			ctx.Logger.Printf("Error while decoding for response from master (%s) for command (%s): %v", masterServerAddress, cmd, err.Error())
+			h.ctx.Logger.Printf("Error while decoding for response from master (%s) for command (%s): %v", masterServerAddress, cmd, err.Error())
 			return nil, err
 		}
 		if cmd == constants.PSYNC_COMMAND {
@@ -197,14 +211,14 @@ func initiateHandShakeWithMaster(serverInstance *server.Server) (net.Conn, error
 			continue
 		}
 		if !handshakeStep.ExpectedResponse.IsEqual(decodedResponseFromMaster) {
-			ctx.Logger.Printf("Unexpected response from master (%s) for command (%s): %+v", masterServerAddress, cmd, decodedResponseFromMaster)
+			h.ctx.Logger.Printf("Unexpected response from master (%s) for command (%s): %+v", masterServerAddress, cmd, decodedResponseFromMaster)
 			return nil, err
 		}
 	}
 	return conn, nil
 }
 
-func createHandshakePipeline(serverInstance *server.Server) []HandshakeStep {
+func (h *ConnectionHandler) createHandshakePipeline(serverInstance *server.Server) []HandshakeStep {
 	handshakePipeline := []HandshakeStep{}
 	handshakePipeline = append(handshakePipeline, HandshakeStep{
 		CommandName:      constants.PING_COMMAND,
@@ -231,56 +245,56 @@ func createHandshakePipeline(serverInstance *server.Server) []HandshakeStep {
 	return handshakePipeline
 }
 
-func getConnectionFileDescriptor(conn net.Conn) int {
+func (h *ConnectionHandler) getConnectionFileDescriptor(conn net.Conn) int {
 	tcpConn := conn.(*net.TCPConn)
 	file, err := tcpConn.File()
 
 	if err != nil {
-		log.Fatalf("Error getting file descriptor: %v", err.Error())
+		h.ctx.Logger.Fatalf("Error getting file descriptor: %v", err.Error())
 	}
 	return int(file.Fd())
 }
 
-func terminateConnection(conn net.Conn) {
-	connFd, connFdPresent := CONN_FILE_DESC_BI_MAP.ReverseLookup(conn)
+func (h *ConnectionHandler) terminateConnection(conn net.Conn) {
+	connFd, connFdPresent := h.connectionFileDescriptorBiMap.ReverseLookup(conn)
 	if !connFdPresent {
-		ctx.Logger.Printf(" Connection (%s) file descriptor not found in connection file descriptor map while terminating connection", conn.RemoteAddr())
+		h.ctx.Logger.Printf(" Connection (%s) file descriptor not found in connection file descriptor map while terminating connection", conn.RemoteAddr())
 		os.Exit(1)
 	}
 
-	closeConnectionPoll(connFd)
-	closeConnection(conn)
+	h.closeConnectionPoll(connFd)
+	h.closeConnection(conn)
 }
 
-func closeConnectionPoll(connFd int) {
-	err := syscall.EpollCtl(EPOLL_FD, syscall.EPOLL_CTL_DEL, connFd, nil)
+func (h *ConnectionHandler) closeConnectionPoll(connFd int) {
+	err := syscall.EpollCtl(h.epollFd, syscall.EPOLL_CTL_DEL, connFd, nil)
 	if err != nil {
-		ctx.Logger.Printf("Failed to remove fd %d from epoll: %v", connFd, err)
+		h.ctx.Logger.Printf("Failed to remove fd %d from epoll: %v", connFd, err)
 	}
-	CONN_FILE_DESC_BI_MAP.Delete(connFd)
-	ctx.Logger.Printf("[ConnFD-%d] Connection closed", connFd)
+	h.connectionFileDescriptorBiMap.Delete(connFd)
+	h.ctx.Logger.Printf("[ConnFD-%d] Connection closed", connFd)
 }
 
-func closeConnection(conn net.Conn) {
+func (h *ConnectionHandler) closeConnection(conn net.Conn) {
 	err := conn.Close()
 	if err != nil {
-		ctx.Logger.Printf("(%s) Error closing connection: '%v'", conn.RemoteAddr(), err.Error())
+		h.ctx.Logger.Printf("(%s) Error closing connection: '%v'", conn.RemoteAddr(), err.Error())
 		os.Exit(1)
 	}
-	CONN_FILE_DESC_BI_MAP.DeleteUsingReverseLookup(conn)
-	ctx.Logger.Printf("(%s) Connection closed", conn.RemoteAddr())
+	h.connectionFileDescriptorBiMap.DeleteUsingReverseLookup(conn)
+	h.ctx.Logger.Printf("(%s) Connection closed", conn.RemoteAddr())
 }
 
-func writeDataToConnection(conn net.Conn, dataList []constants.DataRepr) error {
+func (h *ConnectionHandler) writeDataToConnection(conn net.Conn, dataList []constants.DataRepr) error {
 	for _, data := range dataList {
 		encodedData := parser.Encode(data)
-		ctx.Logger.Printf("(%s) Begin writing data '%q' to connection", conn.RemoteAddr(), encodedData)
+		h.ctx.Logger.Printf("(%s) Begin writing data '%q' to connection", conn.RemoteAddr(), encodedData)
 		_, err := conn.Write(encodedData)
 		if err != nil {
-			ctx.Logger.Printf("(%s) Error writing data '%q' to connection: %v", conn.RemoteAddr(), encodedData, err.Error())
+			h.ctx.Logger.Printf("(%s) Error writing data '%q' to connection: %v", conn.RemoteAddr(), encodedData, err.Error())
 			return err
 		}
-		ctx.Logger.Printf("(%s) Successfully written data '%q' to connection", conn.RemoteAddr(), encodedData)
+		h.ctx.Logger.Printf("(%s) Successfully written data '%q' to connection", conn.RemoteAddr(), encodedData)
 	}
 	return nil
 }

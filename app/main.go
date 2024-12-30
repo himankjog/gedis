@@ -21,10 +21,12 @@ func main() {
 	appContext := context.BuildContext(serverInstance)
 
 	// Initialize components with context
-	handlers.InitializeBaseHandler(appContext)
+	commandHandler := handlers.InitCommandHandler(appContext)
+	requestHandler := handlers.InitRequestHandler(appContext, commandHandler)
+	connectionHandler := handlers.InitConnectionHandler(appContext, requestHandler)
 	utils.InitUtils(appContext)
 	persistence.InitBasePersistence(appContext)
 	parser.InitBaseParser(appContext)
 
-	handlers.StartEventLoop()
+	connectionHandler.StartEventLoop()
 }
