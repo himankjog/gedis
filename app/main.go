@@ -24,9 +24,12 @@ func main() {
 	commandHandler := handlers.InitCommandHandler(appContext)
 	requestHandler := handlers.InitRequestHandler(appContext, commandHandler)
 	connectionHandler := handlers.InitConnectionHandler(appContext, requestHandler)
+	replicationHandler := handlers.InitReplicationHandler(appContext, connectionHandler)
+
 	utils.InitUtils(appContext)
 	persistence.InitBasePersistence(appContext)
 	parser.InitBaseParser(appContext)
 
+	replicationHandler.StartReplicationHandler()
 	connectionHandler.StartEventLoop()
 }

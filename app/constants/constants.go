@@ -1,6 +1,11 @@
 package constants
 
-import "bytes"
+import (
+	"bytes"
+	"strings"
+
+	"github.com/google/uuid"
+)
 
 // Server constants
 const (
@@ -9,6 +14,19 @@ const (
 	MASTER_ROLE            = "master"
 	REPLICA_ROLE           = "slave"
 )
+
+// Common Structs
+type Request struct {
+	Data      []byte
+	RequestId uuid.UUID
+}
+
+type ExecuteCommandRequest struct {
+	Cmd            string
+	RequestId      uuid.UUID
+	Args           []DataRepr
+	DecodedRequest DataRepr
+}
 
 // Parser constants
 type DataType byte
@@ -44,8 +62,9 @@ const (
 )
 
 const (
-	PONG_RESPONSE = "PONG"
-	OK_RESPONSE   = "OK"
+	PONG_RESPONSE       = "PONG"
+	OK_RESPONSE         = "OK"
+	FULLRESYNC_RESPONSE = "FULLRESYNC"
 )
 
 const (
@@ -62,20 +81,29 @@ const (
 	PSYNC_UNKNOWN_MASTER_OFFSET        = "-1"
 )
 
-func (d1 DataRepr) IsEqual(d2 DataRepr) bool {
-	if d1.Type != d2.Type {
+type CommandExecutedNotification struct {
+	Cmd            string
+	RequestId      uuid.UUID
+	Args           []DataRepr
+	DecodedRequest DataRepr
+	Success        bool
+}
+
+func (actual DataRepr) IsEqual(expected DataRepr, onlyPrefix bool) bool {
+	if actual.Type != expected.Type {
 		return false
 	}
 
-	switch d1.Type {
+	switch actual.Type {
 	case INTEGER, STRING, BULK, ERROR:
-		return bytes.Equal(d1.Data, d2.Data)
+		return (bytes.Equal(actual.Data, expected.Data) ||
+			(onlyPrefix && strings.HasPrefix(string(actual.Data), string(expected.Data))))
 	case ARRAY:
-		if len(d1.Array) != len(d2.Array) {
+		if len(actual.Array) != len(expected.Array) {
 			return false
 		}
-		for i := range d1.Array {
-			if !d1.Array[i].IsEqual(d2.Array[i]) {
+		for i := range actual.Array {
+			if !actual.Array[i].IsEqual(expected.Array[i], onlyPrefix) {
 				return false
 			}
 		}

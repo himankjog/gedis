@@ -15,11 +15,6 @@ type RequestHandler struct {
 	ctx            *context.Context
 }
 
-type Request struct {
-	Data      []byte
-	RequestId uuid.UUID
-}
-
 func InitRequestHandler(ctx *context.Context, cmdHandler *CommandHandler) *RequestHandler {
 	requestHandler := RequestHandler{
 		commandHandler: cmdHandler,
@@ -29,7 +24,7 @@ func InitRequestHandler(ctx *context.Context, cmdHandler *CommandHandler) *Reque
 	return &requestHandler
 }
 
-func (h *RequestHandler) ProcessRequest(request Request) []constants.DataRepr {
+func (h *RequestHandler) ProcessRequest(request constants.Request) []constants.DataRepr {
 	requestData, requestId := request.Data, request.RequestId
 
 	decodedRequestData, err := parser.Decode(requestData)
@@ -56,7 +51,12 @@ func processRequest(h *RequestHandler, decodedRequestData constants.DataRepr, re
 	args := decodedRequestData.Array[1:]
 	h.ctx.Logger.Printf("(%s) Sending command: %s to command handler", requestId.String(), command)
 
-	response := h.commandHandler.ExecuteCommand(command, args)
+	response := h.commandHandler.ExecuteCommand(constants.ExecuteCommandRequest{
+		Cmd:            command,
+		Args:           args,
+		RequestId:      requestId,
+		DecodedRequest: decodedRequestData,
+	})
 	h.ctx.Logger.Printf("(%s) Response post processing request: %q", requestId.String(), response)
 	return response
 }

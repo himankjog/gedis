@@ -17,6 +17,11 @@ import (
 	"github.com/google/uuid"
 )
 
+type GedisConn struct {
+	conn net.Conn
+	ctx  *context.Context
+}
+
 type HandshakeStep struct {
 	CommandName      string
 	Request          constants.DataRepr
@@ -25,6 +30,7 @@ type HandshakeStep struct {
 
 type ConnectionHandler struct {
 	connectionFileDescriptorBiMap *utils.BiMap[int, net.Conn]
+	requestIdToConnMap            map[uuid.UUID]net.Conn
 	epollFd                       int
 	ctx                           *context.Context
 	requestHandler                *RequestHandler
@@ -36,6 +42,7 @@ func InitConnectionHandler(ctx *context.Context, requestHandler *RequestHandler)
 		epollFd:                       -1,
 		ctx:                           ctx,
 		requestHandler:                requestHandler,
+		requestIdToConnMap:            make(map[uuid.UUID]net.Conn),
 	}
 	return &connectionHandler
 }
@@ -56,35 +63,52 @@ func (h *ConnectionHandler) StartEventLoop() {
 		if err != nil {
 			h.ctx.Logger.Fatalf("Error waiting for epoll events: %v", err.Error())
 		}
-		h.ctx.Logger.Printf("Epoll has %d events", n)
+		// h.ctx.Logger.Printf("Epoll has %d events", n)
 		for i := 0; i < n; i++ {
 			if events[i].Fd == -1 {
 				continue
 			}
-			connFd := int(events[i].Fd)
-			conn, isConnPresent := h.connectionFileDescriptorBiMap.Lookup(connFd)
-			if !isConnPresent {
-				h.ctx.Logger.Printf("Connection object not found for connection file descriptor: %d. Terminating the connection", connFd)
-				h.terminateConnection(conn)
-				continue
-			}
-			dataFromConn, err := h.fetchDataFromConnection(conn)
-			if err != nil {
-				h.terminateConnection(conn)
-				continue
-			}
-			if len(dataFromConn) == 0 {
-				continue
-			}
-			requestId := uuid.New()
-			h.ctx.Logger.Printf("From connection (%s) received request ID '%s' with data: %q", conn.RemoteAddr(), requestId.String(), dataFromConn)
-			response := h.requestHandler.ProcessRequest(Request{
-				Data:      dataFromConn,
-				RequestId: requestId,
-			})
-			go h.writeDataToConnection(conn, response)
+			go h.processEventForConnection(int(events[i].Fd))
 		}
 	}
+}
+
+func (h *ConnectionHandler) GetConnectionForRequest(requestId uuid.UUID) (*net.Conn, error) {
+	h.ctx.Logger.Printf("Fetching connection for requestId: %s", requestId.String())
+	conn, connExists := h.requestIdToConnMap[requestId]
+	if !connExists {
+		errMessage := fmt.Sprintf("Connection not present for requestId: %s", requestId.String())
+		h.ctx.Logger.Printf(errMessage)
+		return nil, errors.New(errMessage)
+	}
+	delete(h.requestIdToConnMap, requestId)
+	h.ctx.Logger.Printf("Successfully fetched connection for requestId: %s", requestId.String())
+	return &conn, nil
+}
+
+func (h *ConnectionHandler) processEventForConnection(connFd int) {
+	conn, isConnPresent := h.connectionFileDescriptorBiMap.Lookup(connFd)
+	if !isConnPresent {
+		h.ctx.Logger.Printf("Connection object not found for connection file descriptor: %d. Terminating the connection", connFd)
+		h.terminateConnection(conn)
+		return
+	}
+	dataFromConn, err := h.fetchDataFromConnection(conn)
+	if err != nil {
+		h.terminateConnection(conn)
+		return
+	}
+	if len(dataFromConn) == 0 {
+		return
+	}
+	requestId := uuid.New()
+	h.ctx.Logger.Printf("From connection (%s) received request ID '%s' with data: %q", conn.RemoteAddr(), requestId.String(), dataFromConn)
+	h.requestIdToConnMap[requestId] = conn
+	response := h.requestHandler.ProcessRequest(constants.Request{
+		Data:      dataFromConn,
+		RequestId: requestId,
+	})
+	h.writeDataToConnection(conn, response)
 }
 
 func (h *ConnectionHandler) acceptConnections() {
@@ -114,15 +138,15 @@ func (h *ConnectionHandler) acceptConnections() {
 }
 
 func (h *ConnectionHandler) fetchDataFromConnection(conn net.Conn) ([]byte, error) {
-	h.ctx.Logger.Printf("Started reading data from connection (%s)", conn.RemoteAddr())
+	// h.ctx.Logger.Printf("Started reading data from connection (%s)", conn.RemoteAddr())
 	reader := bufio.NewReader(conn)
 	data := make([]byte, 0, 1024)
 	for {
 		readBuf := make([]byte, 1024)
 		bytesRead, err := reader.Read(readBuf)
-		h.ctx.Logger.Printf("From connection (%s) read %d bytes", conn.RemoteAddr(), bytesRead)
+		// h.ctx.Logger.Printf("From connection (%s) read %d bytes", conn.RemoteAddr(), bytesRead)
 		if err != nil {
-			h.ctx.Logger.Printf("From connection (%s) error reading data from: %v", conn.RemoteAddr(), err.Error())
+			// h.ctx.Logger.Printf("From connection (%s) error reading data from: %v", conn.RemoteAddr(), err.Error())
 			if err != io.EOF {
 				return nil, err
 			}
@@ -135,7 +159,7 @@ func (h *ConnectionHandler) fetchDataFromConnection(conn net.Conn) ([]byte, erro
 		}
 	}
 	if len(data) < 1 {
-		h.ctx.Logger.Printf("From connection (%s) no data received", conn.RemoteAddr())
+		// h.ctx.Logger.Printf("From connection (%s) no data received", conn.RemoteAddr())
 	}
 
 	return data, nil
@@ -206,11 +230,11 @@ func (h *ConnectionHandler) initiateHandShakeWithMaster(serverInstance *server.S
 			h.ctx.Logger.Printf("Error while decoding for response from master (%s) for command (%s): %v", masterServerAddress, cmd, err.Error())
 			return nil, err
 		}
+		prefixOnlyCheck := false
 		if cmd == constants.PSYNC_COMMAND {
-			// TODO: Validate PSYNC response
-			continue
+			prefixOnlyCheck = true
 		}
-		if !handshakeStep.ExpectedResponse.IsEqual(decodedResponseFromMaster) {
+		if !decodedResponseFromMaster.IsEqual(handshakeStep.ExpectedResponse, prefixOnlyCheck) {
 			h.ctx.Logger.Printf("Unexpected response from master (%s) for command (%s): %+v", masterServerAddress, cmd, decodedResponseFromMaster)
 			return nil, err
 		}
@@ -239,7 +263,7 @@ func (h *ConnectionHandler) createHandshakePipeline(serverInstance *server.Serve
 	handshakePipeline = append(handshakePipeline, HandshakeStep{
 		CommandName:      constants.PSYNC_COMMAND,
 		Request:          utils.CreateRequestForCommand(constants.PSYNC_COMMAND, constants.PSYNC_UNKNOWN_REPLICATION_ID_PARAM, constants.PSYNC_UNKNOWN_MASTER_OFFSET),
-		ExpectedResponse: ok_response,
+		ExpectedResponse: utils.CreateStringResponse(constants.FULLRESYNC_RESPONSE),
 	})
 
 	return handshakePipeline
@@ -256,14 +280,15 @@ func (h *ConnectionHandler) getConnectionFileDescriptor(conn net.Conn) int {
 }
 
 func (h *ConnectionHandler) terminateConnection(conn net.Conn) {
+	h.closeConnection(conn)
+	h.ctx.ConnectionClosedNotificationChan <- conn
 	connFd, connFdPresent := h.connectionFileDescriptorBiMap.ReverseLookup(conn)
 	if !connFdPresent {
 		h.ctx.Logger.Printf(" Connection (%s) file descriptor not found in connection file descriptor map while terminating connection", conn.RemoteAddr())
-		os.Exit(1)
+		return
 	}
 
 	h.closeConnectionPoll(connFd)
-	h.closeConnection(conn)
 }
 
 func (h *ConnectionHandler) closeConnectionPoll(connFd int) {

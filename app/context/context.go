@@ -3,15 +3,19 @@ package context
 import (
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"sync"
 
+	"github.com/codecrafters-io/redis-starter-go/app/constants"
 	"github.com/codecrafters-io/redis-starter-go/app/server"
 )
 
 type Context struct {
-	ServerInstance *server.Server
-	Logger         *log.Logger
+	ServerInstance                   *server.Server
+	Logger                           *log.Logger
+	CommandExecutedNotificationChan  chan constants.CommandExecutedNotification
+	ConnectionClosedNotificationChan chan net.Conn
 }
 
 var context *Context
@@ -21,9 +25,13 @@ func BuildContext(serverInstance *server.Server) *Context {
 	once.Do(func() {
 		prefixString := fmt.Sprintf("[%s]", (*serverInstance).ServerAddress)
 		logger := log.New(os.Stdout, prefixString, log.Ldate|log.Ltime)
+		commandExecutedNotificationChan := make(chan constants.CommandExecutedNotification)
+		connectionClosedNotificationChan := make(chan net.Conn)
 		context = &Context{
-			ServerInstance: serverInstance,
-			Logger:         logger,
+			ServerInstance:                   serverInstance,
+			Logger:                           logger,
+			CommandExecutedNotificationChan:  commandExecutedNotificationChan,
+			ConnectionClosedNotificationChan: connectionClosedNotificationChan,
 		}
 	})
 	return context
