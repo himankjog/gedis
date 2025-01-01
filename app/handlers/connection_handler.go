@@ -34,6 +34,7 @@ type ConnectionHandler struct {
 	epollFd                       int
 	ctx                           *context.Context
 	requestHandler                *RequestHandler
+	masterConn                    *net.Conn
 }
 
 func InitConnectionHandler(ctx *context.Context, requestHandler *RequestHandler) *ConnectionHandler {
@@ -43,6 +44,7 @@ func InitConnectionHandler(ctx *context.Context, requestHandler *RequestHandler)
 		ctx:                           ctx,
 		requestHandler:                requestHandler,
 		requestIdToConnMap:            make(map[uuid.UUID]net.Conn),
+		masterConn:                    nil,
 	}
 	return &connectionHandler
 }
@@ -108,7 +110,9 @@ func (h *ConnectionHandler) processEventForConnection(connFd int) {
 		Data:      dataFromConn,
 		RequestId: requestId,
 	})
-	h.writeDataToConnection(conn, response)
+	if conn != *h.masterConn {
+		h.writeDataToConnection(conn, response)
+	}
 }
 
 func (h *ConnectionHandler) acceptConnections() {
@@ -192,6 +196,7 @@ func (h *ConnectionHandler) handleMasterConnection() {
 	}
 
 	h.ctx.Logger.Printf("Connection with master (%s) successfully established", masterConn.RemoteAddr())
+	h.masterConn = &masterConn
 }
 
 func (h *ConnectionHandler) initiateHandShakeWithMaster(serverInstance *server.Server) (net.Conn, error) {
