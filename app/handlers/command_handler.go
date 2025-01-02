@@ -3,8 +3,6 @@ package handlers
 import (
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -106,7 +104,7 @@ func handleGetCommand(h *CommandHandler, args []constants.DataRepr) ([]constants
 	}
 	h.ctx.Logger.Printf("For key: %s, fetched value: %s", key, value)
 	decodedValue, _ := parser.Decode([]byte(value))
-	return []constants.DataRepr{decodedValue}, nil
+	return []constants.DataRepr{decodedValue[0]}, nil
 }
 
 func handleSetCommand(h *CommandHandler, args []constants.DataRepr) ([]constants.DataRepr, error) {
@@ -150,18 +148,6 @@ func handlePsyncCommand(h *CommandHandler, args []constants.DataRepr) ([]constan
 	responseData := fmt.Sprintf("%s %s %d", constants.FULLRESYNC_RESPONSE,
 		h.ctx.ServerInstance.ReplicationConfig.MasterReplId, h.ctx.ServerInstance.ReplicationConfig.MasterReplOffset)
 	responseDataList := []constants.DataRepr{utils.CreateStringResponse(responseData)}
-	// TODO: Get file path from server
-	currDir, _ := os.Getwd()
-	rdbFilePath := filepath.Join(currDir, "app", "persistence", "storage", "empty_hex.rdb")
-	binaryDecodedDataFromFile, err := utils.ReadHexFileToBinary(rdbFilePath)
-
-	if err != nil {
-		h.ctx.Logger.Printf("Error while trying to decode data from edb file at path '%s': %v", rdbFilePath, err.Error())
-		responseDataList = append(responseDataList, utils.CreateErrorResponse(err.Error()))
-		return responseDataList, err
-	}
-	responseDataList = append(responseDataList, utils.CreateRdbFileResponse(binaryDecodedDataFromFile))
-
 	return responseDataList, nil
 }
 

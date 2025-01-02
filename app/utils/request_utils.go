@@ -17,6 +17,10 @@ func CreateRequestForCommand(command string, subCommands ...string) constants.Da
 	return CreateArrayDataRepr(requestDataArray)
 }
 
+func CreateIntegerResponse(data string) constants.DataRepr {
+	return CreateAtomicDataReprFromString(data, constants.INTEGER)
+}
+
 func CreateStringResponse(data string) constants.DataRepr {
 	return CreateAtomicDataReprFromString(data, constants.STRING)
 }

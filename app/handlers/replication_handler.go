@@ -2,10 +2,13 @@ package handlers
 
 import (
 	"net"
+	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/codecrafters-io/redis-starter-go/app/constants"
 	"github.com/codecrafters-io/redis-starter-go/app/context"
+	"github.com/codecrafters-io/redis-starter-go/app/utils"
 )
 
 type Replica struct {
@@ -59,6 +62,20 @@ func (h *ReplicationHandler) handleHandshakeWithReplica(cmdExecutedNotification 
 	conn, err := h.connHandler.GetConnectionForRequest(cmdExecutedNotification.RequestId)
 	if err != nil {
 		h.ctx.Logger.Printf("Error while trying to fetch connection to requestId: %s", cmdExecutedNotification.RequestId.String())
+		return
+	}
+	currDir, _ := os.Getwd()
+	rdbFilePath := filepath.Join(currDir, "app", "persistence", "storage", "empty_hex.rdb")
+	binaryDecodedDataFromFile, err := utils.ReadHexFileToBinary(rdbFilePath)
+
+	if err != nil {
+		h.ctx.Logger.Printf("Error while trying to decode data from rdb file at path '%s': %v", rdbFilePath, err.Error())
+		return
+	}
+	rdbDecodedData := utils.CreateRdbFileResponse(binaryDecodedDataFromFile)
+	err = h.connHandler.writeDataToConnection(*conn, []constants.DataRepr{rdbDecodedData})
+	if err != nil {
+		h.ctx.Logger.Printf("Error while tyring to send RDB file to replica: %v", err.Error())
 		return
 	}
 	h.replicaMapLock.Lock()

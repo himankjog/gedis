@@ -16,3 +16,18 @@ func ReadNext(reader *bufio.Reader) ([]byte, int, error) {
 	charactersRead := len(line) - 2
 	return line, charactersRead, nil
 }
+
+func ReadUntilCRLF(reader *bufio.Reader) ([]byte, int, error) {
+	data, err := reader.ReadBytes('\n')
+	if err != nil {
+		return nil, 0, err
+	}
+
+	dataLength := len(data)
+
+	if dataLength < 2 || data[dataLength-2] != '\r' {
+		return nil, 0, errors.New("Invalid data: missing CRLF")
+	}
+
+	return data[:dataLength-2], dataLength - 2, nil
+}

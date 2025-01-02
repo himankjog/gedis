@@ -103,15 +103,21 @@ func (h *ConnectionHandler) processEventForConnection(connFd int) {
 	if len(dataFromConn) == 0 {
 		return
 	}
+	h.processRequest(conn, dataFromConn)
+}
+
+func (h *ConnectionHandler) processRequest(conn net.Conn, dataToProcess []byte) {
 	requestId := uuid.New()
-	h.ctx.Logger.Printf("From connection (%s) received request ID '%s' with data: %q", conn.RemoteAddr(), requestId.String(), dataFromConn)
+	h.ctx.Logger.Printf("From connection (%s) received request ID '%s' with data: %q", conn.RemoteAddr(), requestId.String(), dataToProcess)
 	h.requestIdToConnMap[requestId] = conn
-	response := h.requestHandler.ProcessRequest(constants.Request{
-		Data:      dataFromConn,
+	responseList := h.requestHandler.ProcessRequest(constants.Request{
+		Data:      dataToProcess,
 		RequestId: requestId,
 	})
-	if conn != *h.masterConn {
-		h.writeDataToConnection(conn, response)
+	if h.masterConn == nil || conn != *h.masterConn {
+		for _, response := range responseList {
+			h.writeDataToConnection(conn, response)
+		}
 	}
 }
 
@@ -176,16 +182,18 @@ func (h *ConnectionHandler) handleMasterConnection() {
 		return
 	}
 	masterAddress := hostServer.ReplicationConfig.MasterServerAddress
-	masterConn, err := h.initiateHandShakeWithMaster(hostServer)
+	masterConn, bufferedRequest, err := h.initiateHandShakeWithMaster(hostServer)
 	if err != nil {
 		h.ctx.Logger.Fatalf("Error while trying to initiate handshake with master (%s): %v", masterAddress, err.Error())
 	}
+	h.handleInitialDataPostHandshake(masterConn, bufferedRequest)
 
 	h.ctx.Logger.Printf("Handshake completed with master at address: %s", masterAddress)
 	masterConnFd := h.getConnectionFileDescriptor(masterConn)
 	h.ctx.Logger.Printf("For master connection (%s) Got connection file descriptor: %d", masterAddress, masterConnFd)
 
 	h.connectionFileDescriptorBiMap.Insert(masterConnFd, masterConn)
+	h.masterConn = &masterConn
 	err = syscall.EpollCtl(h.epollFd, syscall.EPOLL_CTL_ADD, masterConnFd, &syscall.EpollEvent{
 		Events: syscall.EPOLLIN,
 		Fd:     int32(masterConnFd),
@@ -196,17 +204,17 @@ func (h *ConnectionHandler) handleMasterConnection() {
 	}
 
 	h.ctx.Logger.Printf("Connection with master (%s) successfully established", masterConn.RemoteAddr())
-	h.masterConn = &masterConn
 }
 
-func (h *ConnectionHandler) initiateHandShakeWithMaster(serverInstance *server.Server) (net.Conn, error) {
+func (h *ConnectionHandler) initiateHandShakeWithMaster(serverInstance *server.Server) (net.Conn, []constants.DataRepr, error) {
 	masterServerAddress := (*serverInstance).ReplicationConfig.MasterServerAddress
 	conn, err := net.Dial("tcp", masterServerAddress)
 
 	if err != nil {
 		h.ctx.Logger.Printf("Error while trying to establish connection with master (%s): %v", masterServerAddress, err.Error())
-		return nil, err
+		return nil, nil, err
 	}
+	var lastDecodedResponse []constants.DataRepr
 	handshakePipeline := h.createHandshakePipeline(serverInstance)
 	for _, handshakeStep := range handshakePipeline {
 		cmd := handshakeStep.CommandName
@@ -215,36 +223,47 @@ func (h *ConnectionHandler) initiateHandShakeWithMaster(serverInstance *server.S
 		err := h.writeDataToConnection(conn, []constants.DataRepr{handshakeStep.Request})
 		if err != nil {
 			h.ctx.Logger.Printf("Error while trying to send command (%s) master (%s): %v", cmd, masterServerAddress, err.Error())
-			return nil, err
+			return nil, nil, err
 		}
 
 		responseFromMaster, err := h.fetchDataFromConnection(conn)
 		if err != nil {
 			h.ctx.Logger.Printf("Error while waiting for response from master (%s) for command (%s): %v", masterServerAddress, cmd, err.Error())
-			return nil, err
+			return nil, nil, err
 		}
 		if len(responseFromMaster) == 0 {
 			errMessage := fmt.Sprintf("Empty response received from master (%s) for command (%s): %v", masterServerAddress, cmd, err.Error())
 			h.ctx.Logger.Printf(errMessage)
-			return nil, errors.New(errMessage)
+			return nil, nil, errors.New(errMessage)
 		}
 		h.ctx.Logger.Printf("Received response from master (%s) for command (%s): %q", masterServerAddress, cmd, responseFromMaster)
 
 		decodedResponseFromMaster, err := parser.Decode(responseFromMaster)
 		if err != nil {
 			h.ctx.Logger.Printf("Error while decoding for response from master (%s) for command (%s): %v", masterServerAddress, cmd, err.Error())
-			return nil, err
+			return nil, nil, err
 		}
 		prefixOnlyCheck := false
 		if cmd == constants.PSYNC_COMMAND {
 			prefixOnlyCheck = true
+			lastDecodedResponse = append(lastDecodedResponse, decodedResponseFromMaster[1:]...)
 		}
-		if !decodedResponseFromMaster.IsEqual(handshakeStep.ExpectedResponse, prefixOnlyCheck) {
+		if !decodedResponseFromMaster[0].IsEqual(handshakeStep.ExpectedResponse, prefixOnlyCheck) {
 			h.ctx.Logger.Printf("Unexpected response from master (%s) for command (%s): %+v", masterServerAddress, cmd, decodedResponseFromMaster)
-			return nil, err
+			return nil, nil, err
 		}
 	}
-	return conn, nil
+	return conn, lastDecodedResponse, nil
+}
+
+func (h *ConnectionHandler) handleInitialDataPostHandshake(conn net.Conn, requestList []constants.DataRepr) {
+	encodedRequests := []byte{}
+	for _, request := range requestList {
+		encodedRequest := parser.Encode(request)
+		encodedRequests = append(encodedRequests, encodedRequest...)
+	}
+
+	h.processRequest(conn, encodedRequests)
 }
 
 func (h *ConnectionHandler) createHandshakePipeline(serverInstance *server.Server) []HandshakeStep {

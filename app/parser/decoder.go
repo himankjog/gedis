@@ -4,149 +4,147 @@ import (
 	"bufio"
 	"bytes"
 	"errors"
+	"fmt"
+	"io"
 	"strconv"
 
 	"github.com/codecrafters-io/redis-starter-go/app/constants"
+	"github.com/codecrafters-io/redis-starter-go/app/utils"
 )
 
-func Decode(data []byte) (constants.DataRepr, error) {
-	if len(data) == 0 {
-		return constants.DataRepr{}, errors.New("no data provided")
-	}
-	reader := bufio.NewReader(bytes.NewReader(data))
-	return decode(reader)
+type decoder func(reader *bufio.Reader) (*constants.DataRepr, error)
+
+var decoderRegistry map[byte]decoder
+
+func init() {
+	decoderRegistry = make(map[byte]decoder)
+	decoderRegistry[constants.INTEGER] = decodeInteger
+	decoderRegistry[constants.STRING] = decodeSimpleString
+	decoderRegistry[constants.BULK] = decodeBulkString
+	decoderRegistry[constants.ERROR] = decodeError
+	decoderRegistry[constants.ARRAY] = decodeArray
 }
 
-func decode(reader *bufio.Reader) (constants.DataRepr, error) {
-	data, _, err := ReadNext(reader)
+func Decode(data []byte) ([]constants.DataRepr, error) {
+	if len(data) == 0 {
+		return nil, errors.New("no data provided")
+	}
+	reader := bufio.NewReader(bytes.NewReader(data))
+	decodedDataList := make([]constants.DataRepr, 0)
+	for {
+		decodedData, err := decode(reader)
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return nil, err
+		}
+		decodedDataList = append(decodedDataList, *decodedData)
+
+		if reader.Buffered() == 0 {
+			break
+		}
+	}
+	return decodedDataList, nil
+}
+
+func decode(reader *bufio.Reader) (*constants.DataRepr, error) {
+	dataTypeByte, err := reader.Peek(1)
 	if err != nil {
 		ctx.Logger.Printf("Error trying to start decode: %s", err)
-		return constants.DataRepr{}, err
+		return nil, err
 	}
-	switch data[0] {
-	case constants.INTEGER:
-		return decodeInteger(data[1:])
-	case constants.STRING:
-		return decodeSimpleString(data[1:])
-	case constants.BULK:
-		bulkStringData, _, err := ReadNext(reader)
-		if err != nil {
-			ctx.Logger.Printf("Error trying to read bulk string data from decode: %s", err)
-			return constants.DataRepr{}, err
-		}
-		bulkStringData = append(data, bulkStringData...)
-		return decodeBulkString(bulkStringData[1:])
-	case constants.ERROR:
-		return decodeError(data[1:])
-	case constants.ARRAY:
-		return decodeArray(data[1:], reader)
-	default:
-		ctx.Logger.Printf("Unsupported data type: %v", data[0])
-		return constants.DataRepr{}, errors.New("unsupported data type")
+
+	decoder, decoderExists := decoderRegistry[dataTypeByte[0]]
+	if !decoderExists {
+		errMessage := fmt.Sprintf("%q is not a valid start of a RESP2 value (expected +, -, :, $ or *) for decoder", dataTypeByte[0])
+		ctx.Logger.Println(errMessage)
+		return nil, errors.New(errMessage)
 	}
+	return decoder(reader)
 }
 
-func decodeInteger(data []byte) (constants.DataRepr, error) {
-	reader := bufio.NewReader(bytes.NewReader(data))
-	integerData, charactersRead, err := ReadNext(reader)
+func decodeInteger(reader *bufio.Reader) (*constants.DataRepr, error) {
+	data, _, err := ReadUntilCRLF(reader)
+	if err != nil {
+		ctx.Logger.Printf("Error trying to read integer in decodeInteger: %s", err)
+		return nil, err
+	}
+	integer, err := strconv.Atoi(string(data[1:]))
 	if err != nil {
 		ctx.Logger.Printf("Error trying to read integer data in decodeInteger: %s", err)
-		return constants.DataRepr{}, errors.New("error parsing integer data")
-	}
-	integer, err := strconv.Atoi(string(integerData[:charactersRead]))
-	if err != nil {
-		ctx.Logger.Printf("Error trying to parse integer from integer data: %s", err)
-		return constants.DataRepr{}, errors.New("error parsing integer from integer data")
+		return nil, err
 	}
 	ctx.Logger.Printf("Parsed integer: %d", integer)
-	return constants.DataRepr{
-		Type:  constants.INTEGER,
-		Data:  integerData[:charactersRead],
-		Array: nil,
-	}, nil
+	integerDataRepr := utils.CreateIntegerResponse(string(data[1:]))
+	return &integerDataRepr, nil
 }
 
-func decodeSimpleString(data []byte) (constants.DataRepr, error) {
-	reader := bufio.NewReader(bytes.NewReader(data))
-	simpleString, charactersRead, err := ReadNext(reader)
+func decodeSimpleString(reader *bufio.Reader) (*constants.DataRepr, error) {
+	simpleString, _, err := ReadUntilCRLF(reader)
 	if err != nil {
 		ctx.Logger.Printf("Error trying to read simple string in decodeSimpleString: %s", err)
-		return constants.DataRepr{}, err
+		return nil, err
 	}
 	ctx.Logger.Printf("Parsed simple string: %s", simpleString)
-	return constants.DataRepr{
-		Type:  constants.STRING,
-		Data:  simpleString[:charactersRead],
-		Array: nil,
-	}, nil
+	stringDataRepr := utils.CreateStringResponse(string(simpleString[1:]))
+	return &stringDataRepr, nil
 }
 
-func decodeBulkString(data []byte) (constants.DataRepr, error) {
-	bulkStringReader := bufio.NewReader(bytes.NewReader(data))
-	bulkStringLengthBytes, charactersRead, err := ReadNext(bulkStringReader)
+func decodeBulkString(reader *bufio.Reader) (*constants.DataRepr, error) {
+	bulkStringLengthBytes, _, err := ReadUntilCRLF(reader)
 	if err != nil {
 		ctx.Logger.Printf("Error trying to read bulk string length bytes in decodeBulkString: %s", err)
-		return constants.DataRepr{}, err
+		return nil, err
 	}
-	bulkStringLength, err := strconv.Atoi(string(bulkStringLengthBytes[:charactersRead]))
+	bulkStringLength, err := strconv.Atoi(string(bulkStringLengthBytes[1:]))
 	if err != nil {
 		ctx.Logger.Printf("Error trying to parse bulk string length from bulk string length bytes: %s", err)
-		return constants.DataRepr{}, err
+		return nil, err
 	}
-	bulkStringBytes := make([]byte, bulkStringLength+2)
-	readStringLength, err := bulkStringReader.Read(bulkStringBytes)
+	if bulkStringLength == -1 {
+		nilBulkStringResponse := utils.NilBulkStringResponse()
+		return &nilBulkStringResponse, nil
+	}
+	bulkStringBytes := make([]byte, bulkStringLength)
+	_, err = reader.Read(bulkStringBytes)
 	if err != nil {
 		ctx.Logger.Printf("Error trying to read bulk string bytes in decodeBulkString: %s", err)
-		return constants.DataRepr{}, err
-	}
-	if readStringLength > bulkStringLength+2 {
-		ctx.Logger.Printf("Error: read string length does not match bulk string length")
-		return constants.DataRepr{}, errors.New("provided length does not match provided data length")
+		return nil, err
 	}
 
-	// if readStringLength > 2 {
-	// 	lastChar := bulkStringBytes[readStringLength-1]
-	// 	secondToLastChar := bulkStringBytes[readStringLength-2]
-	// 	if secondToLastChar != '\r' || lastChar != '\n' {
-	// 		ctx.Logger.Printf("Error: bulk string does not end with CRLF")
-	// 		return constants.DataRepr{}, errors.New("bulk string does not end with CRLF")
-	// 	}
-	// }
+	crlfData, _ := reader.Peek(2)
 
-	return constants.DataRepr{
-		Type:  constants.BULK,
-		Data:  bulkStringBytes[:bulkStringLength],
-		Array: nil,
-	}, nil
+	if len(crlfData) == 2 && crlfData[0] == '\r' {
+		// Discard \r\n
+		reader.Discard(2)
+	}
+	bulkStringDataRepr := utils.CreateBulkResponse(string(bulkStringBytes))
+	return &bulkStringDataRepr, nil
 }
 
-func decodeError(data []byte) (constants.DataRepr, error) {
-	reader := bufio.NewReader(bytes.NewReader(data))
-	errorData, charactersRead, err := ReadNext(reader)
+func decodeError(reader *bufio.Reader) (*constants.DataRepr, error) {
+	errorData, _, err := ReadUntilCRLF(reader)
 	if err != nil {
 		ctx.Logger.Printf("Error trying to read error data in decodeError: %s", err)
-		return constants.DataRepr{}, err
+		return nil, err
 	}
 	ctx.Logger.Printf("Parsed error: %s", errorData)
-	return constants.DataRepr{
-		Type:  constants.ERROR,
-		Data:  errorData[:charactersRead],
-		Array: nil,
-	}, nil
+	errorDataRepr := utils.CreateErrorResponse(string(errorData[1:]))
+	return &errorDataRepr, nil
 }
 
-func decodeArray(data []byte, reader *bufio.Reader) (constants.DataRepr, error) {
-	arrayReader := bufio.NewReader(bytes.NewReader(data))
-	arrayLengthBytes, charactersRead, err := ReadNext(arrayReader)
+func decodeArray(reader *bufio.Reader) (*constants.DataRepr, error) {
+	arrayLengthBytes, _, err := ReadUntilCRLF(reader)
 	if err != nil {
 		ctx.Logger.Printf("Error trying to read array length bytes in decodeArray: %s", err)
-		return constants.DataRepr{}, err
+		return nil, err
 	}
 
-	arrayLength, err := strconv.Atoi(string(arrayLengthBytes[:charactersRead]))
+	arrayLength, err := strconv.Atoi(string(arrayLengthBytes[1:]))
 	if err != nil {
 		ctx.Logger.Printf("Error trying to parse array length from array length bytes: %s", err)
-		return constants.DataRepr{}, err
+		return nil, err
 	}
 
 	var array []constants.DataRepr
@@ -154,14 +152,10 @@ func decodeArray(data []byte, reader *bufio.Reader) (constants.DataRepr, error) 
 		element, err := decode(reader)
 		if err != nil {
 			ctx.Logger.Printf("Error trying to decode array element in decodeArray: %s", err)
-			return constants.DataRepr{}, err
+			return nil, err
 		}
-		array = append(array, element)
+		array = append(array, *element)
 	}
-
-	return constants.DataRepr{
-		Type:  constants.ARRAY,
-		Data:  nil,
-		Array: array,
-	}, nil
+	arrayDataRepr := utils.CreateArrayDataRepr(array)
+	return &arrayDataRepr, nil
 }

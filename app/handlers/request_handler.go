@@ -24,21 +24,32 @@ func InitRequestHandler(ctx *context.Context, cmdHandler *CommandHandler) *Reque
 	return &requestHandler
 }
 
-func (h *RequestHandler) ProcessRequest(request constants.Request) []constants.DataRepr {
+func (h *RequestHandler) ProcessRequest(request constants.Request) [][]constants.DataRepr {
+	responseList := [][]constants.DataRepr{}
 	requestData, requestId := request.Data, request.RequestId
-
-	decodedRequestData, err := parser.Decode(requestData)
-
+	decodedRequestDataList, err := parser.Decode(requestData)
 	if err != nil {
 		errMessage := fmt.Sprintf("(%s) Error while trying to decode request with data '%q' : %v", requestId.String(), requestData, err.Error())
 		h.ctx.Logger.Println(errMessage)
-		return []constants.DataRepr{utils.CreateErrorResponse(errMessage)}
+		responseList = append(responseList, []constants.DataRepr{utils.CreateErrorResponse(errMessage)})
+		return responseList
 	}
 
-	return processRequest(h, decodedRequestData, requestId)
+	for _, decodedRequest := range decodedRequestDataList {
+		response := processRequest(h, decodedRequest, requestId)
+		if len(response) == 0 {
+			continue
+		}
+		responseList = append(responseList, response)
+	}
+	return responseList
 }
 
 func processRequest(h *RequestHandler, decodedRequestData constants.DataRepr, requestId uuid.UUID) []constants.DataRepr {
+	if decodedRequestData.Type == constants.BULK {
+		h.ctx.Logger.Printf("Received RDB file from master with data %q", decodedRequestData.Data)
+		return []constants.DataRepr{}
+	}
 	// Request is always going to be an ARRAY type and first element of array will be a command decoded as a bulk string
 	// For example: "PING" becomes *1\r\n$4\r\nPING\r\n
 	// "ECHO hey" becomes *2\r\n$4\r\nECHO\r\n$3\r\nhey\r\n
