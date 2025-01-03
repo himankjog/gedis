@@ -73,10 +73,19 @@ const (
 
 // Sub-commands
 const (
-	SET_PX_COMMAND                     = "SET_PX"
-	REPLCONF_LISTENING_PORT_PARAM      = "listening-port"
-	REPLCONF_CAPA_PARAM                = "capa"
-	REPLCONF_PSYNC2_PARAM              = "psync2"
+	GETACK = "GETACK"
+	ACK    = "ACK"
+)
+
+const (
+	SET_PX_COMMAND = "SET_PX"
+	// REPLCONF
+	REPLCONF_LISTENING_PORT_PARAM = "listening-port"
+	REPLCONF_CAPA_PARAM           = "capa"
+	REPLCONF_PSYNC2_PARAM         = "psync2"
+	REPLCONF_GETACK               = "REPLCONF_GETACK"
+	REPLCONF_ACK                  = "REPLCONF_ACK"
+	// PSYNC
 	PSYNC_UNKNOWN_REPLICATION_ID_PARAM = "?"
 	PSYNC_UNKNOWN_MASTER_OFFSET        = "-1"
 )

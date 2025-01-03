@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"strings"
 	"syscall"
 
 	"github.com/codecrafters-io/redis-starter-go/app/constants"
@@ -114,8 +115,16 @@ func (h *ConnectionHandler) processRequest(conn net.Conn, dataToProcess []byte) 
 		Data:      dataToProcess,
 		RequestId: requestId,
 	})
-	if h.masterConn == nil || conn != *h.masterConn {
-		for _, response := range responseList {
+	shouldRespond := func(conn net.Conn, response []constants.DataRepr) bool {
+		for _, data := range response {
+			if strings.Contains(string(parser.Encode(data)), constants.CRLF+constants.ACK+constants.CRLF) {
+				return true
+			}
+		}
+		return (conn == nil || h.masterConn == nil || conn != *h.masterConn)
+	}
+	for _, response := range responseList {
+		if shouldRespond(conn, response) {
 			h.writeDataToConnection(conn, response)
 		}
 	}
@@ -186,6 +195,7 @@ func (h *ConnectionHandler) handleMasterConnection() {
 	if err != nil {
 		h.ctx.Logger.Fatalf("Error while trying to initiate handshake with master (%s): %v", masterAddress, err.Error())
 	}
+	h.masterConn = &masterConn
 	h.handleInitialDataPostHandshake(masterConn, bufferedRequest)
 
 	h.ctx.Logger.Printf("Handshake completed with master at address: %s", masterAddress)
@@ -193,7 +203,6 @@ func (h *ConnectionHandler) handleMasterConnection() {
 	h.ctx.Logger.Printf("For master connection (%s) Got connection file descriptor: %d", masterAddress, masterConnFd)
 
 	h.connectionFileDescriptorBiMap.Insert(masterConnFd, masterConn)
-	h.masterConn = &masterConn
 	err = syscall.EpollCtl(h.epollFd, syscall.EPOLL_CTL_ADD, masterConnFd, &syscall.EpollEvent{
 		Events: syscall.EPOLLIN,
 		Fd:     int32(masterConnFd),
@@ -253,16 +262,23 @@ func (h *ConnectionHandler) initiateHandShakeWithMaster(serverInstance *server.S
 			return nil, nil, err
 		}
 	}
+	h.requestHandler.ctx.Logger.Printf("Last decoded response: %s", lastDecodedResponse)
 	return conn, lastDecodedResponse, nil
 }
 
 func (h *ConnectionHandler) handleInitialDataPostHandshake(conn net.Conn, requestList []constants.DataRepr) {
 	encodedRequests := []byte{}
 	for _, request := range requestList {
+		if len(request.Data) == 0 && request.Type != constants.ARRAY {
+			continue
+		}
+		h.requestHandler.ctx.Logger.Printf("Post handshake request data: %s", string(request.Data))
 		encodedRequest := parser.Encode(request)
 		encodedRequests = append(encodedRequests, encodedRequest...)
 	}
-
+	if len(encodedRequests) == 0 {
+		return
+	}
 	h.processRequest(conn, encodedRequests)
 }
 

@@ -139,8 +139,15 @@ func handleInfoCommand(h *CommandHandler, args []constants.DataRepr) ([]constant
 }
 
 func handleReplconfCommand(h *CommandHandler, args []constants.DataRepr) ([]constants.DataRepr, error) {
-	// Todo: Handle command parameters
-	return []constants.DataRepr{utils.CreateStringResponse("OK")}, nil
+	firstArg := string(args[0].Data)
+
+	switch firstArg {
+	case constants.GETACK:
+		return []constants.DataRepr{utils.CreateReplconfAck(args[1].Data, 0)}, nil
+	default:
+		//TODO: Handling listening-port and capa pysnc2 here for now. Need to handle them separately
+		return []constants.DataRepr{utils.CreateStringResponse("OK")}, nil
+	}
 }
 
 func handlePsyncCommand(h *CommandHandler, args []constants.DataRepr) ([]constants.DataRepr, error) {

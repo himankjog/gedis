@@ -1,6 +1,10 @@
 package utils
 
-import "github.com/codecrafters-io/redis-starter-go/app/constants"
+import (
+	"strconv"
+
+	"github.com/codecrafters-io/redis-starter-go/app/constants"
+)
 
 func CreateRequestForCommand(command string, subCommands ...string) constants.DataRepr {
 	requestDataArray := []constants.DataRepr{}
@@ -67,4 +71,22 @@ func NilBulkStringResponse() constants.DataRepr {
 		Data:  nil,
 		Array: nil,
 	}
+}
+
+func CreateReplconfGetack(replicaOffset int) constants.DataRepr {
+	ctx.Logger.Printf("Received offset from master '%d'", replicaOffset)
+	return CreateArrayDataRepr([]constants.DataRepr{
+		CreateBulkResponse(constants.REPLCONF_COMMAND),
+		CreateBulkResponse(constants.GETACK),
+		CreateBulkResponse("*"),
+	})
+}
+
+func CreateReplconfAck(offsetFromMaster []byte, replicaOffset int) constants.DataRepr {
+	ctx.Logger.Printf("Received offset from master '%q' and replica offset is '%d'", offsetFromMaster, replicaOffset)
+	return CreateArrayDataRepr([]constants.DataRepr{
+		CreateBulkResponse(constants.REPLCONF_COMMAND),
+		CreateBulkResponse(constants.ACK),
+		CreateBulkResponse(strconv.Itoa(replicaOffset)),
+	})
 }
