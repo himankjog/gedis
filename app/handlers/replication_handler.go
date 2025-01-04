@@ -120,7 +120,7 @@ func (h *ReplicationHandler) updateClosedConnectionState() {
 			continue
 		}
 		h.replicaMapLock.Lock()
-		replica := h.replicas[closedConn]
+		replica := h.replicas[closedConn.Conn]
 		replica.isActive = false
 		h.replicaMapLock.Unlock()
 	}

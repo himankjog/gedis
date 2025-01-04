@@ -3,7 +3,6 @@ package context
 import (
 	"fmt"
 	"log"
-	"net"
 	"os"
 	"sync"
 
@@ -15,7 +14,7 @@ type Context struct {
 	ServerInstance                   *server.Server
 	Logger                           *log.Logger
 	CommandExecutedNotificationChan  chan constants.CommandExecutedNotification
-	ConnectionClosedNotificationChan chan net.Conn
+	ConnectionClosedNotificationChan chan constants.ConnectionClosedNotification
 }
 
 var context *Context
@@ -26,7 +25,7 @@ func BuildContext(serverInstance *server.Server) *Context {
 		prefixString := fmt.Sprintf("[%s]", (*serverInstance).ServerAddress)
 		logger := log.New(os.Stdout, prefixString, log.Ldate|log.Ltime)
 		commandExecutedNotificationChan := make(chan constants.CommandExecutedNotification)
-		connectionClosedNotificationChan := make(chan net.Conn)
+		connectionClosedNotificationChan := make(chan constants.ConnectionClosedNotification)
 		context = &Context{
 			ServerInstance:                   serverInstance,
 			Logger:                           logger,

@@ -2,6 +2,7 @@ package constants
 
 import (
 	"bytes"
+	"net"
 	"strings"
 
 	"github.com/google/uuid"
@@ -90,12 +91,36 @@ const (
 	PSYNC_UNKNOWN_MASTER_OFFSET        = "-1"
 )
 
+// Notifications
+type NotificationType string
+
+const (
+	CommandExecutedNotificationType  = NotificationType("CommandExecutedNotification")
+	ConnectionClosedNotificationType = NotificationType("CommandExecutedNotification")
+)
+
+type Notification interface {
+	GetNotificationType() NotificationType
+}
+
 type CommandExecutedNotification struct {
 	Cmd            string
 	RequestId      uuid.UUID
 	Args           []DataRepr
 	DecodedRequest DataRepr
 	Success        bool
+}
+
+func (n CommandExecutedNotification) GetNotificationType() NotificationType {
+	return CommandExecutedNotificationType
+}
+
+type ConnectionClosedNotification struct {
+	Conn net.Conn
+}
+
+func (n ConnectionClosedNotification) GetNotificationType() NotificationType {
+	return ConnectionClosedNotificationType
 }
 
 func (actual DataRepr) IsEqual(expected DataRepr, onlyPrefix bool) bool {

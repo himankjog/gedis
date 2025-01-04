@@ -321,7 +321,9 @@ func (h *ConnectionHandler) getConnectionFileDescriptor(conn net.Conn) int {
 
 func (h *ConnectionHandler) terminateConnection(conn net.Conn) {
 	h.closeConnection(conn)
-	h.ctx.ConnectionClosedNotificationChan <- conn
+	h.ctx.ConnectionClosedNotificationChan <- constants.ConnectionClosedNotification{
+		Conn: conn,
+	}
 	connFd, connFdPresent := h.connectionFileDescriptorBiMap.ReverseLookup(conn)
 	if !connFdPresent {
 		h.ctx.Logger.Printf(" Connection (%s) file descriptor not found in connection file descriptor map while terminating connection", conn.RemoteAddr())
