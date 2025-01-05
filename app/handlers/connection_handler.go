@@ -365,8 +365,6 @@ func (h *ConnectionHandler) writeDataToConnection(conn net.Conn, dataList []cons
 
 // Callback function that will be invoked by notification handler
 func (h *ConnectionHandler) processCmdExecutedNotification(notification constants.CommandExecutedNotification) (bool, error) {
-	h.requestsProcessedCounterLock.Lock()
-	defer h.requestsProcessedCounterLock.Unlock()
 	h.ctx.Logger.Printf("Invoked processCmdExecutedNotification in connection handler with command [%s]", notification.Cmd)
 	if h.ctx.ServerInstance.ReplicationConfig.Role == constants.MASTER_ROLE {
 		return h.processCmdExecutedNotificationForAsMaster(notification)
@@ -385,6 +383,8 @@ func (h *ConnectionHandler) processCmdExecutedNotification(notification constant
 
 func (h *ConnectionHandler) handleCmdExecutedFromMaster(masterConn net.Conn, notification constants.CommandExecutedNotification) (bool, error) {
 	// Handle more conversations with master
+	h.requestsProcessedCounterLock.Lock()
+	defer h.requestsProcessedCounterLock.Unlock()
 	masterRequestBytesProcessedTillNow := h.masterRequestBytesProcessed
 	encodedRequestBytes := parser.Encode(notification.DecodedRequest)
 	switch notification.Cmd {
