@@ -23,7 +23,7 @@ var once sync.Once
 func BuildContext(serverInstance *server.Server) *Context {
 	once.Do(func() {
 		prefixString := fmt.Sprintf("[%s]", (*serverInstance).ServerAddress)
-		logger := log.New(os.Stdout, prefixString, log.Ldate|log.Ltime)
+		logger := log.New(os.Stdout, prefixString, log.Ldate|log.Ltime|log.Lshortfile)
 		commandExecutedNotificationChan := make(chan constants.CommandExecutedNotification)
 		connectionClosedNotificationChan := make(chan constants.ConnectionClosedNotification)
 		context = &Context{

@@ -21,10 +21,11 @@ func main() {
 	appContext := context.BuildContext(serverInstance)
 
 	// Initialize components with context
+	notificationHandler := handlers.NewNotificationHandler(appContext)
 	commandHandler := handlers.InitCommandHandler(appContext)
 	requestHandler := handlers.InitRequestHandler(appContext, commandHandler)
-	connectionHandler := handlers.InitConnectionHandler(appContext, requestHandler)
-	replicationHandler := handlers.InitReplicationHandler(appContext, connectionHandler)
+	connectionHandler := handlers.InitConnectionHandler(appContext, requestHandler, notificationHandler)
+	replicationHandler := handlers.InitReplicationHandler(appContext, connectionHandler, notificationHandler)
 
 	utils.InitUtils(appContext)
 	persistence.InitBasePersistence(appContext)

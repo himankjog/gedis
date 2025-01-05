@@ -7,7 +7,6 @@ import (
 	"io"
 	"net"
 	"os"
-	"strings"
 	"syscall"
 
 	"github.com/codecrafters-io/redis-starter-go/app/constants"
@@ -35,18 +34,23 @@ type ConnectionHandler struct {
 	epollFd                       int
 	ctx                           *context.Context
 	requestHandler                *RequestHandler
+	notificationHandler           *NotificationHandler
 	masterConn                    *net.Conn
+	masterRequestBytesProcessed   int
 }
 
-func InitConnectionHandler(ctx *context.Context, requestHandler *RequestHandler) *ConnectionHandler {
+func InitConnectionHandler(ctx *context.Context, requestHandler *RequestHandler, notificationHandler *NotificationHandler) *ConnectionHandler {
 	connectionHandler := ConnectionHandler{
 		connectionFileDescriptorBiMap: utils.NewBiMap[int, net.Conn](),
 		epollFd:                       -1,
 		ctx:                           ctx,
 		requestHandler:                requestHandler,
+		notificationHandler:           notificationHandler,
 		requestIdToConnMap:            make(map[uuid.UUID]net.Conn),
 		masterConn:                    nil,
+		masterRequestBytesProcessed:   0,
 	}
+	connectionHandler.notificationHandler.SubscribeToCmdExecutedNotification(connectionHandler.processCmdExecutedNotification)
 	return &connectionHandler
 }
 
@@ -84,7 +88,6 @@ func (h *ConnectionHandler) GetConnectionForRequest(requestId uuid.UUID) (*net.C
 		h.ctx.Logger.Printf(errMessage)
 		return nil, errors.New(errMessage)
 	}
-	delete(h.requestIdToConnMap, requestId)
 	h.ctx.Logger.Printf("Successfully fetched connection for requestId: %s", requestId.String())
 	return &conn, nil
 }
@@ -115,16 +118,8 @@ func (h *ConnectionHandler) processRequest(conn net.Conn, dataToProcess []byte) 
 		Data:      dataToProcess,
 		RequestId: requestId,
 	})
-	shouldRespond := func(conn net.Conn, response []constants.DataRepr) bool {
-		for _, data := range response {
-			if strings.Contains(string(parser.Encode(data)), constants.CRLF+constants.ACK+constants.CRLF) {
-				return true
-			}
-		}
-		return (conn == nil || h.masterConn == nil || conn != *h.masterConn)
-	}
 	for _, response := range responseList {
-		if shouldRespond(conn, response) {
+		if h.masterConn == nil || conn != *h.masterConn {
 			h.writeDataToConnection(conn, response)
 		}
 	}
@@ -364,4 +359,47 @@ func (h *ConnectionHandler) writeDataToConnection(conn net.Conn, dataList []cons
 		h.ctx.Logger.Printf("(%s) Successfully written data '%q' to connection", conn.RemoteAddr(), encodedData)
 	}
 	return nil
+}
+
+// Callback function that will be invoked by notification handler
+func (h *ConnectionHandler) processCmdExecutedNotification(notification constants.CommandExecutedNotification) (bool, error) {
+	h.ctx.Logger.Printf("Invoked processCmdExecutedNotification in connection handler with command [%s]", notification.Cmd)
+	if h.ctx.ServerInstance.ReplicationConfig.Role == constants.MASTER_ROLE {
+		return h.processCmdExecutedNotificationForAsMaster(notification)
+	}
+	conn, err := h.GetConnectionForRequest(notification.RequestId)
+	h.ctx.Logger.Printf("Got connection [%s] for notification cmd [%s]", (*conn).RemoteAddr(), notification.Cmd)
+	if err != nil {
+		h.ctx.Logger.Printf("Error while trying to fetch connection for executed command with requestId: %s", notification.RequestId.String())
+		return false, err
+	}
+	if h.masterConn != nil && *conn == *h.masterConn {
+		return h.handleCmdExecutedFromMaster(*conn, notification)
+	}
+	return true, nil
+}
+
+func (h *ConnectionHandler) handleCmdExecutedFromMaster(masterConn net.Conn, notification constants.CommandExecutedNotification) (bool, error) {
+	// Handle more conversations with master
+	masterRequestBytesProcessedTillNow := h.masterRequestBytesProcessed
+	encodedRequestBytes := parser.Encode(notification.DecodedRequest)
+	switch notification.Cmd {
+	case constants.REPLCONF_COMMAND:
+		if string(notification.Args[0].Data) != constants.GETACK {
+			return true, nil
+		}
+		h.masterRequestBytesProcessed += len(encodedRequestBytes)
+		responseToMaster := utils.CreateReplconfAck([]byte{}, masterRequestBytesProcessedTillNow)
+		h.writeDataToConnection(masterConn, []constants.DataRepr{responseToMaster})
+		return true, nil
+	default:
+		if masterRequestBytesProcessedTillNow != 0 {
+			h.masterRequestBytesProcessed += len(encodedRequestBytes)
+		}
+		return true, nil
+	}
+}
+
+func (h *ConnectionHandler) processCmdExecutedNotificationForAsMaster(notification constants.CommandExecutedNotification) (bool, error) {
+	return true, nil
 }

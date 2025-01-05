@@ -18,54 +18,58 @@ type Replica struct {
 }
 
 type ReplicationHandler struct {
-	ctx            *context.Context
-	replicas       map[net.Conn]*Replica
-	connHandler    *ConnectionHandler
-	replicaMapLock sync.Mutex
+	ctx                 *context.Context
+	replicas            map[net.Conn]*Replica
+	connHandler         *ConnectionHandler
+	notificationHandler *NotificationHandler
+	replicaMapLock      sync.Mutex
 }
 
-func InitReplicationHandler(appContext *context.Context, connectionHandler *ConnectionHandler) *ReplicationHandler {
+func InitReplicationHandler(appContext *context.Context, connectionHandler *ConnectionHandler, notificationHandler *NotificationHandler) *ReplicationHandler {
 	replicationHandler := ReplicationHandler{
-		ctx:            appContext,
-		replicas:       make(map[net.Conn]*Replica),
-		connHandler:    connectionHandler,
-		replicaMapLock: sync.Mutex{},
+		ctx:                 appContext,
+		replicas:            make(map[net.Conn]*Replica),
+		connHandler:         connectionHandler,
+		notificationHandler: notificationHandler,
+		replicaMapLock:      sync.Mutex{},
 	}
+	notificationHandler.SubscribeToCmdExecutedNotification(replicationHandler.processCmdExecutedNotification)
+	notificationHandler.SubscribeToConnClosedNotification(replicationHandler.processConnectionClosedNotification)
 	return &replicationHandler
 }
 
 func (h *ReplicationHandler) StartReplicationHandler() {
-	go h.handleCmdExecutedNotifications()
-	go h.updateClosedConnectionState()
 	go h.cleanupInactiveConnections()
 	go h.replicaHealthCheck()
 }
 
-func (h *ReplicationHandler) handleCmdExecutedNotifications() {
-	for cmdExecutedNotification := range h.ctx.CommandExecutedNotificationChan {
-		if h.ctx.ServerInstance.ReplicationConfig.Role != constants.MASTER_ROLE {
-			// Only master should cater to these notifications, at least for now
-			continue
-		}
-		if !cmdExecutedNotification.Success {
-			h.ctx.Logger.Printf("Not handling command [%s] for replication as it wasn't successfully executed", cmdExecutedNotification.Cmd)
-			continue
-		}
-		switch cmdExecutedNotification.Cmd {
-		case constants.PSYNC_COMMAND:
-			go h.handleHandshakeWithReplica(cmdExecutedNotification)
-		case constants.SET_COMMAND, constants.SET_PX_COMMAND:
-			go h.relayCommandToReplica(cmdExecutedNotification)
-		}
+func (h *ReplicationHandler) processCmdExecutedNotification(notification constants.CommandExecutedNotification) (bool, error) {
+	h.ctx.Logger.Printf("Invoked processCmdExecutedNotifications in replication handler")
+	if h.ctx.ServerInstance.ReplicationConfig.Role != constants.MASTER_ROLE {
+		// Only master should cater to these notifications, at least for now
+		return true, nil
+	}
+	if !notification.Success {
+		h.ctx.Logger.Printf("Not handling command [%s] for replication as it wasn't successfully executed", notification.Cmd)
+		return true, nil
+	}
+	// Handle resonses
+	switch notification.Cmd {
+	case constants.PSYNC_COMMAND:
+		return h.handleHandshakeWithReplica(notification)
+	case constants.SET_COMMAND, constants.SET_PX_COMMAND:
+		return h.relayCommandToReplica(notification)
+	default:
+		return true, nil
 	}
 }
 
-func (h *ReplicationHandler) handleHandshakeWithReplica(cmdExecutedNotification constants.CommandExecutedNotification) {
+func (h *ReplicationHandler) handleHandshakeWithReplica(cmdExecutedNotification constants.CommandExecutedNotification) (bool, error) {
 	h.ctx.Logger.Printf("Handshake completed with replica, adding a new replica")
 	conn, err := h.connHandler.GetConnectionForRequest(cmdExecutedNotification.RequestId)
 	if err != nil {
 		h.ctx.Logger.Printf("Error while trying to fetch connection to requestId: %s", cmdExecutedNotification.RequestId.String())
-		return
+		return false, err
 	}
 	currDir, _ := os.Getwd()
 	rdbFilePath := filepath.Join(currDir, "app", "persistence", "storage", "empty_hex.rdb")
@@ -73,13 +77,13 @@ func (h *ReplicationHandler) handleHandshakeWithReplica(cmdExecutedNotification 
 
 	if err != nil {
 		h.ctx.Logger.Printf("Error while trying to decode data from rdb file at path '%s': %v", rdbFilePath, err.Error())
-		return
+		return false, err
 	}
 	rdbDecodedData := utils.CreateRdbFileResponse(binaryDecodedDataFromFile)
 	err = h.connHandler.writeDataToConnection(*conn, []constants.DataRepr{rdbDecodedData})
 	if err != nil {
 		h.ctx.Logger.Printf("Error while tyring to send RDB file to replica: %v", err.Error())
-		return
+		return false, err
 	}
 	h.replicaMapLock.Lock()
 	defer h.replicaMapLock.Unlock()
@@ -90,14 +94,14 @@ func (h *ReplicationHandler) handleHandshakeWithReplica(cmdExecutedNotification 
 	}
 	h.ctx.Logger.Printf("Successfully added replica %+v", *h.replicas[*conn])
 	// TODO: Send all existing writes from offset to current time to newly added Replica
+	return true, nil
 }
 
-func (h *ReplicationHandler) relayCommandToReplica(cmdExecutedNotification constants.CommandExecutedNotification) {
+func (h *ReplicationHandler) relayCommandToReplica(cmdExecutedNotification constants.CommandExecutedNotification) (bool, error) {
 	cmd := cmdExecutedNotification.Cmd
 	h.ctx.Logger.Printf("Relaying command [%s] to replicas", cmd)
 
 	h.replicaMapLock.Lock()
-	defer h.replicaMapLock.Unlock()
 	for conn, replica := range h.replicas {
 		if !replica.isActive {
 			h.ctx.Logger.Printf("Not relaying command [%s] to replica with address '%s' as connection is not active", cmd, conn.RemoteAddr())
@@ -109,21 +113,21 @@ func (h *ReplicationHandler) relayCommandToReplica(cmdExecutedNotification const
 			continue
 		}
 	}
-
+	h.replicaMapLock.Unlock()
 	h.ctx.Logger.Printf("Successfully relayed command [%s] to all the replicas", cmd)
+	return true, nil
 }
 
-func (h *ReplicationHandler) updateClosedConnectionState() {
-	for closedConn := range h.ctx.ConnectionClosedNotificationChan {
-		if h.ctx.ServerInstance.ReplicationConfig.Role != constants.MASTER_ROLE {
-			// Only master should cater to these notifications, at least for now
-			continue
-		}
-		h.replicaMapLock.Lock()
-		replica := h.replicas[closedConn.Conn]
-		replica.isActive = false
-		h.replicaMapLock.Unlock()
+func (h *ReplicationHandler) processConnectionClosedNotification(notification constants.ConnectionClosedNotification) (bool, error) {
+	if h.ctx.ServerInstance.ReplicationConfig.Role != constants.MASTER_ROLE {
+		// Only master should cater to these notifications, at least for now
+		return true, nil
 	}
+	h.replicaMapLock.Lock()
+	replica := h.replicas[notification.Conn]
+	replica.isActive = false
+	h.replicaMapLock.Unlock()
+	return true, nil
 }
 
 func (h *ReplicationHandler) cleanupInactiveConnections() {

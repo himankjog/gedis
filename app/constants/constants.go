@@ -104,11 +104,12 @@ type Notification interface {
 }
 
 type CommandExecutedNotification struct {
-	Cmd            string
-	RequestId      uuid.UUID
-	Args           []DataRepr
-	DecodedRequest DataRepr
-	Success        bool
+	Cmd                 string
+	RequestId           uuid.UUID
+	Args                []DataRepr
+	DecodedRequest      DataRepr
+	DecodedResponseList []DataRepr
+	Success             bool
 }
 
 func (n CommandExecutedNotification) GetNotificationType() NotificationType {

@@ -34,6 +34,7 @@ func InitCommandHandler(ctx *context.Context) *CommandHandler {
 
 	// Sub-commands
 	cmdRegistry[constants.SET_PX_COMMAND] = handleSetPxCommand
+	cmdRegistry[constants.REPLCONF_GETACK] = handleReplconfGetackCommand
 
 	commandHandler := CommandHandler{
 		CommandRegistry: cmdRegistry,
@@ -66,6 +67,7 @@ func (h *CommandHandler) ExecuteCommand(executeCommandRequest constants.ExecuteC
 		result = append(result, utils.CreateErrorResponse(err.Error()))
 		commandExecutedNotification.Success = false
 	}
+	commandExecutedNotification.DecodedResponseList = result
 	h.ctx.CommandExecutedNotificationChan <- commandExecutedNotification
 	h.ctx.Logger.Printf("(%s) Successfully executed command [%s]", commandExecutedNotification.RequestId.String(), commandName)
 	return result
@@ -143,7 +145,8 @@ func handleReplconfCommand(h *CommandHandler, args []constants.DataRepr) ([]cons
 
 	switch firstArg {
 	case constants.GETACK:
-		return []constants.DataRepr{utils.CreateReplconfAck(args[1].Data, 0)}, nil
+		sub_command := fmt.Sprintf(constants.SUB_COMMAND_FORMAT, constants.REPLCONF_COMMAND, string(args[0].Data))
+		return h.CommandRegistry[strings.ToUpper(sub_command)](h, args[1:])
 	default:
 		//TODO: Handling listening-port and capa pysnc2 here for now. Need to handle them separately
 		return []constants.DataRepr{utils.CreateStringResponse("OK")}, nil
@@ -186,4 +189,8 @@ func handleSetPxCommand(h *CommandHandler, args []constants.DataRepr) ([]constan
 	}
 	h.ctx.Logger.Printf("Successfully persisted data: '%s'  against key: '%s' with millseconds expiry duration '%d'", value, key, expiryDurationInMilli)
 	return []constants.DataRepr{utils.CreateStringResponse("OK")}, nil
+}
+
+func handleReplconfGetackCommand(h *CommandHandler, args []constants.DataRepr) ([]constants.DataRepr, error) {
+	return []constants.DataRepr{utils.CreateReplconfAck(args[0].Data, 0)}, nil
 }

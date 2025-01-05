@@ -87,6 +87,7 @@ func NewNotificationHandler(ctx *context.Context) *NotificationHandler {
 		connClosedNotifSubscription:  connClosedNotifSubscription,
 	}
 
+	notificationHandler.startPublishing()
 	return &notificationHandler
 }
 
