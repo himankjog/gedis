@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"sync"
 	"syscall"
 
 	"github.com/codecrafters-io/redis-starter-go/app/constants"
@@ -37,6 +38,7 @@ type ConnectionHandler struct {
 	notificationHandler           *NotificationHandler
 	masterConn                    *net.Conn
 	masterRequestBytesProcessed   int
+	requestsProcessedCounterLock  sync.Mutex
 }
 
 func InitConnectionHandler(ctx *context.Context, requestHandler *RequestHandler, notificationHandler *NotificationHandler) *ConnectionHandler {
@@ -363,6 +365,8 @@ func (h *ConnectionHandler) writeDataToConnection(conn net.Conn, dataList []cons
 
 // Callback function that will be invoked by notification handler
 func (h *ConnectionHandler) processCmdExecutedNotification(notification constants.CommandExecutedNotification) (bool, error) {
+	h.requestsProcessedCounterLock.Lock()
+	defer h.requestsProcessedCounterLock.Unlock()
 	h.ctx.Logger.Printf("Invoked processCmdExecutedNotification in connection handler with command [%s]", notification.Cmd)
 	if h.ctx.ServerInstance.ReplicationConfig.Role == constants.MASTER_ROLE {
 		return h.processCmdExecutedNotificationForAsMaster(notification)
