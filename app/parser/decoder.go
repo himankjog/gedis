@@ -76,7 +76,7 @@ func decodeInteger(reader *bufio.Reader) (*constants.DataRepr, error) {
 		return nil, err
 	}
 	ctx.Logger.Printf("Parsed integer: %d", integer)
-	integerDataRepr := utils.CreateIntegerResponse(string(data[1:]))
+	integerDataRepr := utils.CreateIntegerResponse(integer)
 	return &integerDataRepr, nil
 }
 

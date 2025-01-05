@@ -60,6 +60,7 @@ const (
 	INFO_COMMAND     = "INFO"
 	REPLCONF_COMMAND = "REPLCONF"
 	PSYNC_COMMAND    = "PSYNC"
+	WAIT_COMMAND     = "WAIT"
 )
 
 const (

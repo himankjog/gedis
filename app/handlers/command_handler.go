@@ -31,6 +31,7 @@ func InitCommandHandler(ctx *context.Context) *CommandHandler {
 	cmdRegistry[constants.INFO_COMMAND] = handleInfoCommand
 	cmdRegistry[constants.REPLCONF_COMMAND] = handleReplconfCommand
 	cmdRegistry[constants.PSYNC_COMMAND] = handlePsyncCommand
+	cmdRegistry[constants.WAIT_COMMAND] = handleWaitCommand
 
 	// Sub-commands
 	cmdRegistry[constants.SET_PX_COMMAND] = handleSetPxCommand
@@ -151,6 +152,10 @@ func handleReplconfCommand(h *CommandHandler, args []constants.DataRepr) ([]cons
 		//TODO: Handling listening-port and capa pysnc2 here for now. Need to handle them separately
 		return []constants.DataRepr{utils.CreateStringResponse("OK")}, nil
 	}
+}
+
+func handleWaitCommand(h *CommandHandler, args []constants.DataRepr) ([]constants.DataRepr, error) {
+	return []constants.DataRepr{utils.CreateIntegerResponse(0)}, nil
 }
 
 func handlePsyncCommand(h *CommandHandler, args []constants.DataRepr) ([]constants.DataRepr, error) {
