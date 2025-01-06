@@ -22,7 +22,7 @@ func main() {
 
 	// Initialize components with context
 	notificationHandler := handlers.NewNotificationHandler(appContext)
-	commandHandler := handlers.InitCommandHandler(appContext)
+	commandHandler := handlers.InitCommandHandler(appContext, notificationHandler)
 	requestHandler := handlers.InitRequestHandler(appContext, commandHandler)
 	connectionHandler := handlers.InitConnectionHandler(appContext, requestHandler, notificationHandler)
 	replicationHandler := handlers.InitReplicationHandler(appContext, connectionHandler, notificationHandler)

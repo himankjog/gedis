@@ -15,14 +15,16 @@ import (
 )
 
 type CommandHandler struct {
-	CommandRegistry CommandRegistry
-	ctx             *context.Context
+	CommandRegistry       CommandRegistry
+	ctx                   *context.Context
+	connectedReplicaCount int
+	notificationHandler   *NotificationHandler
 }
 
 type CommandHandlerFunc func(*CommandHandler, []constants.DataRepr) ([]constants.DataRepr, error)
 type CommandRegistry map[string]CommandHandlerFunc
 
-func InitCommandHandler(ctx *context.Context) *CommandHandler {
+func InitCommandHandler(ctx *context.Context, notificationHandler *NotificationHandler) *CommandHandler {
 	cmdRegistry := make(CommandRegistry)
 	cmdRegistry[constants.PING_COMMAND] = handlePingCommand
 	cmdRegistry[constants.ECHO_COMMAND] = handleEchoCommand
@@ -38,9 +40,13 @@ func InitCommandHandler(ctx *context.Context) *CommandHandler {
 	cmdRegistry[constants.REPLCONF_GETACK] = handleReplconfGetackCommand
 
 	commandHandler := CommandHandler{
-		CommandRegistry: cmdRegistry,
-		ctx:             ctx,
+		CommandRegistry:       cmdRegistry,
+		ctx:                   ctx,
+		connectedReplicaCount: 0,
 	}
+
+	commandHandler.notificationHandler = notificationHandler
+	notificationHandler.SubscribeToConnectedReplicasHeartbeatNotification(commandHandler.processConnectedReplicasHeartbeatNotification)
 	return &commandHandler
 }
 
@@ -74,6 +80,14 @@ func (h *CommandHandler) ExecuteCommand(executeCommandRequest constants.ExecuteC
 	return result
 }
 
+func (h *CommandHandler) processConnectedReplicasHeartbeatNotification(notification constants.ConnectedReplicaHeartbeatNotification) (bool, error) {
+	connectedReplicaCount := notification.ConnectedReplicas
+	h.connectedReplicaCount = connectedReplicaCount
+	// TODO: Handler error scenarios
+	return true, nil
+}
+
+// Command handlers
 func handlePingCommand(h *CommandHandler, args []constants.DataRepr) ([]constants.DataRepr, error) {
 	if len(args) > 0 {
 		h.ctx.Logger.Printf("PING command doesn't expects any arguments")
@@ -155,7 +169,7 @@ func handleReplconfCommand(h *CommandHandler, args []constants.DataRepr) ([]cons
 }
 
 func handleWaitCommand(h *CommandHandler, args []constants.DataRepr) ([]constants.DataRepr, error) {
-	return []constants.DataRepr{utils.CreateIntegerResponse(0)}, nil
+	return []constants.DataRepr{utils.CreateIntegerResponse(h.connectedReplicaCount)}, nil
 }
 
 func handlePsyncCommand(h *CommandHandler, args []constants.DataRepr) ([]constants.DataRepr, error) {

@@ -11,10 +11,11 @@ import (
 )
 
 type Context struct {
-	ServerInstance                   *server.Server
-	Logger                           *log.Logger
-	CommandExecutedNotificationChan  chan constants.CommandExecutedNotification
-	ConnectionClosedNotificationChan chan constants.ConnectionClosedNotification
+	ServerInstance                             *server.Server
+	Logger                                     *log.Logger
+	CommandExecutedNotificationChan            chan constants.CommandExecutedNotification
+	ConnectionClosedNotificationChan           chan constants.ConnectionClosedNotification
+	ConnectedReplicasHeartbeatNotificationChan chan constants.ConnectedReplicaHeartbeatNotification
 }
 
 var context *Context
@@ -26,11 +27,13 @@ func BuildContext(serverInstance *server.Server) *Context {
 		logger := log.New(os.Stdout, prefixString, log.Ldate|log.Ltime|log.Lshortfile)
 		commandExecutedNotificationChan := make(chan constants.CommandExecutedNotification)
 		connectionClosedNotificationChan := make(chan constants.ConnectionClosedNotification)
+		connectedReplicasHeartbeatNotificationChan := make(chan constants.ConnectedReplicaHeartbeatNotification)
 		context = &Context{
-			ServerInstance:                   serverInstance,
-			Logger:                           logger,
-			CommandExecutedNotificationChan:  commandExecutedNotificationChan,
-			ConnectionClosedNotificationChan: connectionClosedNotificationChan,
+			ServerInstance:                             serverInstance,
+			Logger:                                     logger,
+			CommandExecutedNotificationChan:            commandExecutedNotificationChan,
+			ConnectionClosedNotificationChan:           connectionClosedNotificationChan,
+			ConnectedReplicasHeartbeatNotificationChan: connectedReplicasHeartbeatNotificationChan,
 		}
 	})
 	return context

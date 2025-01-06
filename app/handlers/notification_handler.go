@@ -9,6 +9,7 @@ import (
 
 type CmdExecutedNotifCallbackFunc func(constants.CommandExecutedNotification) (bool, error)
 type ConnClosedNotifCallbackFunc func(constants.ConnectionClosedNotification) (bool, error)
+type ConnectedReplicasHeartbeatNotifCallbackFunc func(constants.ConnectedReplicaHeartbeatNotification) (bool, error)
 
 type PublishResponse struct {
 	success bool
@@ -16,9 +17,10 @@ type PublishResponse struct {
 }
 
 type NotificationHandler struct {
-	ctx                          *context.Context
-	cmdExecutedNotifSubscription *Subscription[constants.CommandExecutedNotification]
-	connClosedNotifSubscription  *Subscription[constants.ConnectionClosedNotification]
+	ctx                                         *context.Context
+	cmdExecutedNotifSubscription                *Subscription[constants.CommandExecutedNotification]
+	connClosedNotifSubscription                 *Subscription[constants.ConnectionClosedNotification]
+	connectedReplicasHeartbeatNotifSubscription *Subscription[constants.ConnectedReplicaHeartbeatNotification]
 }
 
 type Subscription[T constants.Notification] struct {
@@ -77,14 +79,24 @@ func (h *NotificationHandler) SubscribeToConnClosedNotification(callbackFunc Con
 	return h.connClosedNotifSubscription.Subscribe(subscriber)
 }
 
+func (h *NotificationHandler) SubscribeToConnectedReplicasHeartbeatNotification(callbackFunc ConnectedReplicasHeartbeatNotifCallbackFunc) (bool, error) {
+	subscriber := Subscriber[constants.ConnectedReplicaHeartbeatNotification]{
+		callbackFunc: callbackFunc,
+	}
+	// TODO: Add error handling
+	return h.connectedReplicasHeartbeatNotifSubscription.Subscribe(subscriber)
+}
+
 func NewNotificationHandler(ctx *context.Context) *NotificationHandler {
 	cmdExecutedNotifSubscription := createSubscription(ctx.CommandExecutedNotificationChan)
 	connClosedNotifSubscription := createSubscription(ctx.ConnectionClosedNotificationChan)
+	connectedReplicasHeartbeatNotifSubscription := createSubscription(ctx.ConnectedReplicasHeartbeatNotificationChan)
 
 	notificationHandler := NotificationHandler{
 		ctx:                          ctx,
 		cmdExecutedNotifSubscription: cmdExecutedNotifSubscription,
 		connClosedNotifSubscription:  connClosedNotifSubscription,
+		connectedReplicasHeartbeatNotifSubscription: connectedReplicasHeartbeatNotifSubscription,
 	}
 
 	notificationHandler.startPublishing()
@@ -103,4 +115,5 @@ func createSubscription[T constants.Notification](notificationChan chan T) *Subs
 func (h *NotificationHandler) startPublishing() {
 	go h.cmdExecutedNotifSubscription.Publish()
 	go h.connClosedNotifSubscription.Publish()
+	go h.connectedReplicasHeartbeatNotifSubscription.Publish()
 }

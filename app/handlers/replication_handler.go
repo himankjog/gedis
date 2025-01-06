@@ -92,7 +92,10 @@ func (h *ReplicationHandler) handleHandshakeWithReplica(cmdExecutedNotification 
 		//TODO: Update offset based on data from replica
 		offset: 0,
 	}
-	h.ctx.Logger.Printf("Successfully added replica %+v", *h.replicas[*conn])
+	h.ctx.Logger.Printf("Added replica for connection [%s]. Total count of replicas added = %d", (*conn).RemoteAddr(), len(h.replicas))
+	h.ctx.ConnectedReplicasHeartbeatNotificationChan <- constants.ConnectedReplicaHeartbeatNotification{
+		ConnectedReplicas: len(h.replicas),
+	}
 	// TODO: Send all existing writes from offset to current time to newly added Replica
 	return true, nil
 }

@@ -96,8 +96,9 @@ const (
 type NotificationType string
 
 const (
-	CommandExecutedNotificationType  = NotificationType("CommandExecutedNotification")
-	ConnectionClosedNotificationType = NotificationType("CommandExecutedNotification")
+	CommandExecutedNotificationType           = NotificationType("CommandExecutedNotification")
+	ConnectionClosedNotificationType          = NotificationType("CommandExecutedNotification")
+	ConnectedReplicaHeartbeatNotificationType = NotificationType("ConnectedReplicaHeartbeatNotification")
 )
 
 type Notification interface {
@@ -123,6 +124,14 @@ type ConnectionClosedNotification struct {
 
 func (n ConnectionClosedNotification) GetNotificationType() NotificationType {
 	return ConnectionClosedNotificationType
+}
+
+type ConnectedReplicaHeartbeatNotification struct {
+	ConnectedReplicas int
+}
+
+func (n ConnectedReplicaHeartbeatNotification) GetNotificationType() NotificationType {
+	return ConnectedReplicaHeartbeatNotificationType
 }
 
 func (actual DataRepr) IsEqual(expected DataRepr, onlyPrefix bool) bool {
