@@ -162,6 +162,8 @@ func handleReplconfCommand(h *CommandHandler, args []constants.DataRepr) ([]cons
 	case constants.GETACK:
 		sub_command := fmt.Sprintf(constants.SUB_COMMAND_FORMAT, constants.REPLCONF_COMMAND, string(args[0].Data))
 		return h.CommandRegistry[strings.ToUpper(sub_command)](h, args[1:])
+	case constants.ACK:
+		return []constants.DataRepr{}, nil
 	default:
 		//TODO: Handling listening-port and capa pysnc2 here for now. Need to handle them separately
 		return []constants.DataRepr{utils.CreateStringResponse("OK")}, nil
@@ -169,7 +171,7 @@ func handleReplconfCommand(h *CommandHandler, args []constants.DataRepr) ([]cons
 }
 
 func handleWaitCommand(h *CommandHandler, args []constants.DataRepr) ([]constants.DataRepr, error) {
-	return []constants.DataRepr{utils.CreateIntegerResponse(h.connectedReplicaCount)}, nil
+	return []constants.DataRepr{}, nil
 }
 
 func handlePsyncCommand(h *CommandHandler, args []constants.DataRepr) ([]constants.DataRepr, error) {

@@ -1,9 +1,12 @@
 package handlers
 
 import (
+	"errors"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"time"
 
@@ -13,8 +16,9 @@ import (
 )
 
 type Replica struct {
-	offset   int
-	isActive bool
+	offset      int
+	isActive    bool
+	awaitingAck bool
 }
 
 type ReplicationHandler struct {
@@ -22,7 +26,7 @@ type ReplicationHandler struct {
 	replicas            map[net.Conn]*Replica
 	connHandler         *ConnectionHandler
 	notificationHandler *NotificationHandler
-	replicaMapLock      sync.Mutex
+	replicaMapLock      sync.RWMutex
 }
 
 func InitReplicationHandler(appContext *context.Context, connectionHandler *ConnectionHandler, notificationHandler *NotificationHandler) *ReplicationHandler {
@@ -31,7 +35,7 @@ func InitReplicationHandler(appContext *context.Context, connectionHandler *Conn
 		replicas:            make(map[net.Conn]*Replica),
 		connHandler:         connectionHandler,
 		notificationHandler: notificationHandler,
-		replicaMapLock:      sync.Mutex{},
+		replicaMapLock:      sync.RWMutex{},
 	}
 	notificationHandler.SubscribeToCmdExecutedNotification(replicationHandler.processCmdExecutedNotification)
 	notificationHandler.SubscribeToConnClosedNotification(replicationHandler.processConnectionClosedNotification)
@@ -40,7 +44,6 @@ func InitReplicationHandler(appContext *context.Context, connectionHandler *Conn
 
 func (h *ReplicationHandler) StartReplicationHandler() {
 	go h.cleanupInactiveConnections()
-	go h.replicaHealthCheck()
 }
 
 func (h *ReplicationHandler) processCmdExecutedNotification(notification constants.CommandExecutedNotification) (bool, error) {
@@ -59,6 +62,10 @@ func (h *ReplicationHandler) processCmdExecutedNotification(notification constan
 		return h.handleHandshakeWithReplica(notification)
 	case constants.SET_COMMAND, constants.SET_PX_COMMAND:
 		return h.relayCommandToReplica(notification)
+	case constants.REPLCONF_COMMAND:
+		return h.processReplconf(notification)
+	case constants.WAIT_COMMAND:
+		return h.processWaitCommand(notification)
 	default:
 		return true, nil
 	}
@@ -80,7 +87,7 @@ func (h *ReplicationHandler) handleHandshakeWithReplica(cmdExecutedNotification 
 		return false, err
 	}
 	rdbDecodedData := utils.CreateRdbFileResponse(binaryDecodedDataFromFile)
-	err = h.connHandler.writeDataToConnection(*conn, []constants.DataRepr{rdbDecodedData})
+	_, err = h.connHandler.writeDataToConnection(*conn, []constants.DataRepr{rdbDecodedData})
 	if err != nil {
 		h.ctx.Logger.Printf("Error while tyring to send RDB file to replica: %v", err.Error())
 		return false, err
@@ -90,7 +97,8 @@ func (h *ReplicationHandler) handleHandshakeWithReplica(cmdExecutedNotification 
 	h.replicas[*conn] = &Replica{
 		isActive: true,
 		//TODO: Update offset based on data from replica
-		offset: 0,
+		offset:      0,
+		awaitingAck: false,
 	}
 	h.ctx.Logger.Printf("Added replica for connection [%s]. Total count of replicas added = %d", (*conn).RemoteAddr(), len(h.replicas))
 	h.ctx.ConnectedReplicasHeartbeatNotificationChan <- constants.ConnectedReplicaHeartbeatNotification{
@@ -98,6 +106,19 @@ func (h *ReplicationHandler) handleHandshakeWithReplica(cmdExecutedNotification 
 	}
 	// TODO: Send all existing writes from offset to current time to newly added Replica
 	return true, nil
+}
+
+func (h *ReplicationHandler) getUpToDateReplicasCount() int {
+	h.replicaMapLock.RLock()
+	defer h.replicaMapLock.RUnlock()
+	upToDateReplicaCount := 0
+	for _, replica := range h.replicas {
+		if !replica.awaitingAck {
+			upToDateReplicaCount++
+		}
+	}
+
+	return upToDateReplicaCount
 }
 
 func (h *ReplicationHandler) relayCommandToReplica(cmdExecutedNotification constants.CommandExecutedNotification) (bool, error) {
@@ -110,14 +131,91 @@ func (h *ReplicationHandler) relayCommandToReplica(cmdExecutedNotification const
 			h.ctx.Logger.Printf("Not relaying command [%s] to replica with address '%s' as connection is not active", cmd, conn.RemoteAddr())
 			continue
 		}
-		err := h.connHandler.writeDataToConnection(conn, []constants.DataRepr{cmdExecutedNotification.DecodedRequest})
+		_, err := h.connHandler.writeDataToConnection(conn, []constants.DataRepr{cmdExecutedNotification.DecodedRequest})
 		if err != nil {
 			h.ctx.Logger.Printf("Error while trying to relay command [%s] to replica with address '%s': %s", cmd, conn.RemoteAddr(), err.Error())
 			continue
 		}
+		replica.awaitingAck = true
 	}
 	h.replicaMapLock.Unlock()
 	h.ctx.Logger.Printf("Successfully relayed command [%s] to all the replicas", cmd)
+	return true, nil
+}
+
+func (h *ReplicationHandler) processReplconf(cmdExecutedNotification constants.CommandExecutedNotification) (bool, error) {
+	args := cmdExecutedNotification.Args
+
+	if string(args[0].Data) != constants.ACK {
+		return true, nil
+	}
+	bytesProcessedByReplica, _ := strconv.Atoi(string(args[1].Data))
+
+	conn, err := h.connHandler.GetConnectionForRequest(cmdExecutedNotification.RequestId)
+	if err != nil {
+		h.ctx.Logger.Printf("Error while trying to fetch connection in REPLCONF ACK processing for requestId: %s", cmdExecutedNotification.RequestId.String())
+		return false, err
+	}
+	h.replicaMapLock.Lock()
+	defer h.replicaMapLock.Unlock()
+
+	h.replicas[*conn].offset += int(bytesProcessedByReplica)
+	h.replicas[*conn].awaitingAck = false
+	return true, nil
+}
+
+func (h *ReplicationHandler) processWaitCommand(cmdExecutedNotification constants.CommandExecutedNotification) (bool, error) {
+	args := cmdExecutedNotification.Args
+	if len(args) < 2 {
+		errMessage := fmt.Sprintf("WAIT command expects %d variables but %d given", 2, len(args))
+		h.ctx.Logger.Print(errMessage)
+		return false, errors.New(errMessage)
+	}
+	numReplicas, err := strconv.Atoi(string(args[0].Data))
+	if err != nil {
+		h.ctx.Logger.Printf("Error while trying to get numReplicas for WAIT command: %v", err.Error())
+		return false, nil
+	}
+
+	timeout, err := strconv.Atoi(string(args[1].Data))
+	if err != nil {
+		h.ctx.Logger.Printf("Error while trying to get timeout for WAIT command: %v", err.Error())
+		return false, nil
+	}
+
+	awaitingAck := false
+	h.replicaMapLock.RLock()
+	for conn, replica := range h.replicas {
+		if !replica.isActive {
+			continue
+		}
+		if replica.awaitingAck {
+			go h.sendHealthCheck(conn, replica)
+		}
+		awaitingAck = awaitingAck || replica.awaitingAck
+	}
+	h.replicaMapLock.RUnlock()
+
+	timeoutChan := time.After(time.Duration(timeout) * time.Millisecond)
+
+	conn, err := h.connHandler.GetConnectionForRequest(cmdExecutedNotification.RequestId)
+	if err != nil {
+		h.ctx.Logger.Printf("Error while trying to fetch connection in WAIT COMMAND processing for requestId: %s", cmdExecutedNotification.RequestId.String())
+		return false, err
+	}
+	ackReplicaCount := h.getUpToDateReplicasCount()
+	hasTimedOut := false
+	for ackReplicaCount < numReplicas && !hasTimedOut && awaitingAck {
+		select {
+		case <-timeoutChan:
+			h.ctx.Logger.Printf("Timed out waiting for replicas to acknowledge")
+			hasTimedOut = true
+		default:
+			ackReplicaCount = h.getUpToDateReplicasCount()
+		}
+	}
+
+	h.connHandler.writeDataToConnection(*conn, []constants.DataRepr{utils.CreateIntegerResponse(ackReplicaCount)})
 	return true, nil
 }
 
@@ -146,22 +244,18 @@ func (h *ReplicationHandler) cleanupInactiveConnections() {
 	}
 }
 
-func (h *ReplicationHandler) replicaHealthCheck() {
-	for {
-		h.ctx.Logger.Printf("Starting by sending health check to replicas: %d", len(h.replicas))
-		h.replicaMapLock.Lock()
-		h.ctx.Logger.Printf("Got lock to send health checks")
-		for conn, replica := range h.replicas {
-			h.ctx.Logger.Printf("Trying to send health check to conn: %s with Replica data: %+v", conn.RemoteAddr(), replica)
-			if !replica.isActive {
-				h.ctx.Logger.Printf("Not checking health of replica with address '%s' as connection is not active", conn.RemoteAddr())
-				continue
-			}
-			h.ctx.Logger.Printf("Sending health check to replica at address: %s", conn.RemoteAddr())
-			h.connHandler.writeDataToConnection(conn, []constants.DataRepr{utils.CreateReplconfGetack(replica.offset)})
-		}
-		h.ctx.Logger.Printf("Done sending health checks to replicas")
-		h.replicaMapLock.Unlock()
-		time.Sleep(5 * time.Minute)
+func (h *ReplicationHandler) sendHealthCheck(conn net.Conn, replica *Replica) (bool, error) {
+	h.ctx.Logger.Printf("Trying to send health check to conn: %s with Replica data: %+v", conn.RemoteAddr(), replica)
+	if !replica.isActive {
+		h.ctx.Logger.Printf("Not checking health of replica with address '%s' as connection is not active", conn.RemoteAddr())
+		return true, nil
 	}
+	h.ctx.Logger.Printf("Sending health check to replica at address: %s", conn.RemoteAddr())
+	_, err := h.connHandler.writeDataToConnection(conn, []constants.DataRepr{utils.CreateReplconfGetack(replica.offset)})
+	if err != nil {
+		h.ctx.Logger.Printf("Issue while sending REPLCONFG GETACK to replica at address: %s", conn.RemoteAddr().String())
+		return false, err
+	}
+	h.ctx.Logger.Printf("Done sending health check to replica")
+	return true, nil
 }

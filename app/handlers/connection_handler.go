@@ -226,7 +226,7 @@ func (h *ConnectionHandler) initiateHandShakeWithMaster(serverInstance *server.S
 		cmd := handshakeStep.CommandName
 		h.ctx.Logger.Printf("Beginning the handshake step with master (%s) using command (%s)", masterServerAddress, cmd)
 
-		err := h.writeDataToConnection(conn, []constants.DataRepr{handshakeStep.Request})
+		_, err := h.writeDataToConnection(conn, []constants.DataRepr{handshakeStep.Request})
 		if err != nil {
 			h.ctx.Logger.Printf("Error while trying to send command (%s) master (%s): %v", cmd, masterServerAddress, err.Error())
 			return nil, nil, err
@@ -349,18 +349,20 @@ func (h *ConnectionHandler) closeConnection(conn net.Conn) {
 	h.ctx.Logger.Printf("(%s) Connection closed", conn.RemoteAddr())
 }
 
-func (h *ConnectionHandler) writeDataToConnection(conn net.Conn, dataList []constants.DataRepr) error {
+func (h *ConnectionHandler) writeDataToConnection(conn net.Conn, dataList []constants.DataRepr) (int, error) {
+	dataWrittenToConn := 0
 	for _, data := range dataList {
 		encodedData := parser.Encode(data)
 		h.ctx.Logger.Printf("(%s) Begin writing data '%q' to connection", conn.RemoteAddr(), encodedData)
 		_, err := conn.Write(encodedData)
 		if err != nil {
 			h.ctx.Logger.Printf("(%s) Error writing data '%q' to connection: %v", conn.RemoteAddr(), encodedData, err.Error())
-			return err
+			return 0, err
 		}
+		dataWrittenToConn += len(encodedData)
 		h.ctx.Logger.Printf("(%s) Successfully written data '%q' to connection", conn.RemoteAddr(), encodedData)
 	}
-	return nil
+	return dataWrittenToConn, nil
 }
 
 // Callback function that will be invoked by notification handler
