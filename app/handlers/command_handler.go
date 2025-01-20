@@ -34,10 +34,12 @@ func InitCommandHandler(ctx *context.Context, notificationHandler *NotificationH
 	cmdRegistry[constants.REPLCONF_COMMAND] = handleReplconfCommand
 	cmdRegistry[constants.PSYNC_COMMAND] = handlePsyncCommand
 	cmdRegistry[constants.WAIT_COMMAND] = handleWaitCommand
+	cmdRegistry[constants.CONFIG_COMMAND] = handleConfigCommand
 
 	// Sub-commands
 	cmdRegistry[constants.SET_PX_COMMAND] = handleSetPxCommand
 	cmdRegistry[constants.REPLCONF_GETACK] = handleReplconfGetackCommand
+	cmdRegistry[constants.CONFIG_GET_COMMAND] = handleConfigGetCommand
 
 	commandHandler := CommandHandler{
 		CommandRegistry:       cmdRegistry,
@@ -182,6 +184,16 @@ func handlePsyncCommand(h *CommandHandler, args []constants.DataRepr) ([]constan
 	return responseDataList, nil
 }
 
+func handleConfigCommand(h *CommandHandler, args []constants.DataRepr) ([]constants.DataRepr, error) {
+	subCommand := string(args[0].Data)
+
+	switch subCommand {
+	case constants.GET:
+		return h.CommandRegistry[constants.CONFIG_GET_COMMAND](h, args[1:])
+	}
+	return []constants.DataRepr{}, nil
+}
+
 // Sub-command handler space
 
 func handleSetPxCommand(h *CommandHandler, args []constants.DataRepr) ([]constants.DataRepr, error) {
@@ -214,4 +226,22 @@ func handleSetPxCommand(h *CommandHandler, args []constants.DataRepr) ([]constan
 
 func handleReplconfGetackCommand(h *CommandHandler, args []constants.DataRepr) ([]constants.DataRepr, error) {
 	return []constants.DataRepr{utils.CreateReplconfAck(args[0].Data, 0)}, nil
+}
+
+func handleConfigGetCommand(h *CommandHandler, args []constants.DataRepr) ([]constants.DataRepr, error) {
+	response := []constants.DataRepr{}
+	for _, param := range args {
+		parameter := string(param.Data)
+		response = append(response, utils.CreateBulkResponse(parameter))
+		switch parameter {
+		case constants.RDB_DIR:
+			response = append(response, utils.CreateBulkResponse(h.ctx.ServerInstance.GetRdbDir()))
+		case constants.RDB_FILE_NAME:
+			response = append(response, utils.CreateBulkResponse(h.ctx.ServerInstance.GetRdbFileName()))
+		default:
+			continue
+		}
+	}
+
+	return []constants.DataRepr{utils.CreateArrayDataRepr(response)}, nil
 }

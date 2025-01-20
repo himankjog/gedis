@@ -61,6 +61,7 @@ const (
 	REPLCONF_COMMAND = "REPLCONF"
 	PSYNC_COMMAND    = "PSYNC"
 	WAIT_COMMAND     = "WAIT"
+	CONFIG_COMMAND   = "CONFIG"
 )
 
 const (
@@ -77,6 +78,7 @@ const (
 const (
 	GETACK = "GETACK"
 	ACK    = "ACK"
+	GET    = "GET"
 )
 
 const (
@@ -90,6 +92,14 @@ const (
 	// PSYNC
 	PSYNC_UNKNOWN_REPLICATION_ID_PARAM = "?"
 	PSYNC_UNKNOWN_MASTER_OFFSET        = "-1"
+	// CONFIG
+	CONFIG_GET_COMMAND = "CONFIG_GET"
+)
+
+// Server config params
+const (
+	RDB_DIR       = "dir"
+	RDB_FILE_NAME = "dbfilename"
 )
 
 // Notifications

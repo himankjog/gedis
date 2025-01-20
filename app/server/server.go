@@ -51,6 +51,14 @@ func GetServerInstance() *Server {
 
 }
 
+func (s *Server) GetRdbDir() string {
+	return s.ServerConfig.RdbDir
+}
+
+func (s *Server) GetRdbFileName() string {
+	return s.ServerConfig.DbFileName
+}
+
 func initializeServer() *Server {
 	serverObj := Server{}
 	port := flag.String("port", constants.DEFAULT_SERVER_PORT, "Gedis listening port")
