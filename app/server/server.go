@@ -24,12 +24,18 @@ type ServerReplicationConfig struct {
 	MasterServerAddress        string
 }
 
+type ServerConfig struct {
+	RdbDir     string
+	DbFileName string
+}
+
 type Server struct {
 	ListeningPort     string
 	Listener          net.Listener
 	ReplicaOf         string
 	ReplicationConfig ServerReplicationConfig
 	ServerAddress     string
+	ServerConfig      ServerConfig
 }
 
 var (
@@ -49,6 +55,8 @@ func initializeServer() *Server {
 	serverObj := Server{}
 	port := flag.String("port", constants.DEFAULT_SERVER_PORT, "Gedis listening port")
 	replicaof := flag.String("replicaof", "", "Master server address")
+	dir := flag.String("dir", "", "RDB File directory")
+	dbFileName := flag.String("dbfilename", "", "RDB file name")
 	flag.Parse()
 
 	serverObj.ListeningPort = *port
@@ -64,6 +72,11 @@ func initializeServer() *Server {
 	serverObj.ReplicationConfig = ServerReplicationConfig{
 		Role:                serverRole,
 		MasterServerAddress: masterServerAddress,
+	}
+
+	serverObj.ServerConfig = ServerConfig{
+		RdbDir:     *dir,
+		DbFileName: *dbFileName,
 	}
 
 	serverObj.ServerAddress = fmt.Sprintf("%s:%s", constants.DEFAULT_SERVER_ADDRESS, serverObj.ListeningPort)
