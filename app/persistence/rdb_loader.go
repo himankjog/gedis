@@ -341,7 +341,6 @@ func loadDatabase(reader *bytes.Reader) (*IndexedDb, error) {
 			}
 		case EOF, SELECTDB:
 			continueLoading = false
-			break
 		default:
 			// Read key value pair
 			valueType := ValueType(opcode)
@@ -366,7 +365,7 @@ func parseRdb(data []byte) (*LoadRDBResponse, error) {
 	hasValidHeader := validateHeaderSection(reader)
 
 	if !hasValidHeader {
-		return nil, fmt.Errorf("Invalid RDB file header")
+		return nil, fmt.Errorf("invalid RDB file header")
 	}
 
 	loadedRDB := LoadRDBResponse{
@@ -384,7 +383,7 @@ func parseRdb(data []byte) (*LoadRDBResponse, error) {
 			// Meta data section
 			metaDataKey, metaDataVal, hasValidMetaData := validateMetaData(reader)
 			if !hasValidMetaData {
-				return nil, fmt.Errorf("Invalid metadata")
+				return nil, fmt.Errorf("invalid metadata")
 			}
 			loadedRDB.arbitraryMetaData[metaDataKey] = metaDataVal
 		case SELECTDB:
@@ -404,10 +403,9 @@ func parseRdb(data []byte) (*LoadRDBResponse, error) {
 		case EOF:
 			validChecksum := validateChecksum(reader)
 			if !validChecksum {
-				return nil, fmt.Errorf("Invalid checksum")
+				return nil, fmt.Errorf("invalid checksum")
 			}
 			continueParsing = false
-			break
 		}
 	}
 	return &loadedRDB, nil
@@ -416,7 +414,7 @@ func parseRdb(data []byte) (*LoadRDBResponse, error) {
 func LoadRDB(filePath string) (*LoadRDBResponse, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
-		fmt.Errorf("Error while trying to open file at path '%s': %v", filePath, err.Error())
+		fmt.Printf("Error while trying to open file at path '%s': %v", filePath, err.Error())
 		return nil, err
 	}
 	defer file.Close()
@@ -425,7 +423,7 @@ func LoadRDB(filePath string) (*LoadRDBResponse, error) {
 	data, err := os.ReadFile(filePath)
 
 	if err != nil {
-		fmt.Errorf("Error while reading file at path '%s': %v", filePath, err.Error())
+		fmt.Printf("Error while reading file at path '%s': %v", filePath, err.Error())
 		return nil, err
 	}
 	fmt.Printf("Successfully read %d bytes from file '%s'", len(data), filePath)
