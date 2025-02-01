@@ -9,7 +9,6 @@ import (
 
 	"github.com/codecrafters-io/redis-starter-go/app/constants"
 	"github.com/codecrafters-io/redis-starter-go/app/context"
-	"github.com/codecrafters-io/redis-starter-go/app/parser"
 	"github.com/codecrafters-io/redis-starter-go/app/persistence"
 	"github.com/codecrafters-io/redis-starter-go/app/utils"
 )
@@ -125,8 +124,7 @@ func handleGetCommand(h *CommandHandler, args []constants.DataRepr) ([]constants
 		return []constants.DataRepr{utils.NilBulkStringResponse()}, nil
 	}
 	h.ctx.Logger.Printf("For key: %s, fetched value: %q", key, value)
-	decodedValue, _ := parser.Decode([]byte(value))
-	return []constants.DataRepr{decodedValue[0]}, nil
+	return []constants.DataRepr{utils.CreateBulkResponse(string(value))}, nil
 }
 
 func handleSetCommand(h *CommandHandler, args []constants.DataRepr) ([]constants.DataRepr, error) {
@@ -140,7 +138,7 @@ func handleSetCommand(h *CommandHandler, args []constants.DataRepr) ([]constants
 		return h.CommandRegistry[strings.ToUpper(sub_command)](h, args)
 	}
 	key := string(args[0].Data)
-	value := parser.Encode(args[1])
+	value := args[1].Data
 	err := h.db.Persist(key, value, persistence.SetOptions{})
 
 	if err != nil {
@@ -217,7 +215,7 @@ func handleSetPxCommand(h *CommandHandler, args []constants.DataRepr) ([]constan
 	}
 
 	key := string(args[0].Data)
-	value := parser.Encode(args[1])
+	value := args[1].Data
 	expiryDurationInMilli, err := strconv.Atoi(string(args[3].Data))
 
 	if err != nil {
