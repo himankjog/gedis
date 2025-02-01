@@ -19,12 +19,13 @@ type CommandHandler struct {
 	ctx                   *context.Context
 	connectedReplicaCount int
 	notificationHandler   *NotificationHandler
+	db                    *persistence.PersiDb
 }
 
 type CommandHandlerFunc func(*CommandHandler, []constants.DataRepr) ([]constants.DataRepr, error)
 type CommandRegistry map[string]CommandHandlerFunc
 
-func InitCommandHandler(ctx *context.Context, notificationHandler *NotificationHandler) *CommandHandler {
+func InitCommandHandler(ctx *context.Context, notificationHandler *NotificationHandler, db *persistence.PersiDb) *CommandHandler {
 	cmdRegistry := make(CommandRegistry)
 	cmdRegistry[constants.PING_COMMAND] = handlePingCommand
 	cmdRegistry[constants.ECHO_COMMAND] = handleEchoCommand
@@ -45,9 +46,10 @@ func InitCommandHandler(ctx *context.Context, notificationHandler *NotificationH
 		CommandRegistry:       cmdRegistry,
 		ctx:                   ctx,
 		connectedReplicaCount: 0,
+		notificationHandler:   notificationHandler,
+		db:                    db,
 	}
 
-	commandHandler.notificationHandler = notificationHandler
 	notificationHandler.SubscribeToConnectedReplicasHeartbeatNotification(commandHandler.processConnectedReplicasHeartbeatNotification)
 	return &commandHandler
 }
@@ -115,13 +117,13 @@ func handleGetCommand(h *CommandHandler, args []constants.DataRepr) ([]constants
 		return make([]constants.DataRepr, 0), errors.New(errMessage)
 	}
 	key := string(args[0].Data)
-	value, valueExists := persistence.Fetch(key)
+	value, valueExists := h.db.Fetch(key)
 
 	if !valueExists {
 		h.ctx.Logger.Printf("Unable to GET value for key %s", key)
 		return []constants.DataRepr{utils.NilBulkStringResponse()}, nil
 	}
-	h.ctx.Logger.Printf("For key: %s, fetched value: %s", key, value)
+	h.ctx.Logger.Printf("For key: %s, fetched value: %q", key, value)
 	decodedValue, _ := parser.Decode([]byte(value))
 	return []constants.DataRepr{decodedValue[0]}, nil
 }
@@ -138,7 +140,7 @@ func handleSetCommand(h *CommandHandler, args []constants.DataRepr) ([]constants
 	}
 	key := string(args[0].Data)
 	value := parser.Encode(args[1])
-	err := persistence.Persist(key, string(value), persistence.SetOptions{})
+	err := h.db.Persist(key, value, persistence.SetOptions{})
 
 	if err != nil {
 		h.ctx.Logger.Printf("Error while handling SET command: %v", err.Error())
@@ -214,7 +216,7 @@ func handleSetPxCommand(h *CommandHandler, args []constants.DataRepr) ([]constan
 	setOptions := persistence.SetOptions{
 		ExpiryDuration: time.Duration(expiryDurationInMilli) * time.Millisecond,
 	}
-	err = persistence.Persist(key, string(value), setOptions)
+	err = h.db.Persist(key, value, setOptions)
 
 	if err != nil {
 		h.ctx.Logger.Printf("Error while handling SET_PX command: %v", err.Error())

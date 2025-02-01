@@ -19,16 +19,17 @@ func main() {
 	log.Printf("Replication role: %s", (*serverInstance).ReplicationConfig.Role)
 
 	appContext := context.BuildContext(serverInstance)
+	// Initialize persistence layer
+	persiDb := persistence.Init(appContext)
 
 	// Initialize components with context
 	notificationHandler := handlers.NewNotificationHandler(appContext)
-	commandHandler := handlers.InitCommandHandler(appContext, notificationHandler)
+	commandHandler := handlers.InitCommandHandler(appContext, notificationHandler, persiDb)
 	requestHandler := handlers.InitRequestHandler(appContext, commandHandler)
 	connectionHandler := handlers.InitConnectionHandler(appContext, requestHandler, notificationHandler)
 	replicationHandler := handlers.InitReplicationHandler(appContext, connectionHandler, notificationHandler)
 
 	utils.InitUtils(appContext)
-	persistence.InitBasePersistence(appContext)
 	parser.InitBaseParser(appContext)
 
 	replicationHandler.StartReplicationHandler()
