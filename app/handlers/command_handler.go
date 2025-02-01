@@ -36,6 +36,7 @@ func InitCommandHandler(ctx *context.Context, notificationHandler *NotificationH
 	cmdRegistry[constants.PSYNC_COMMAND] = handlePsyncCommand
 	cmdRegistry[constants.WAIT_COMMAND] = handleWaitCommand
 	cmdRegistry[constants.CONFIG_COMMAND] = handleConfigCommand
+	cmdRegistry[constants.KEYS_COMMAND] = handleKeysCommand
 
 	// Sub-commands
 	cmdRegistry[constants.SET_PX_COMMAND] = handleSetPxCommand
@@ -194,6 +195,16 @@ func handleConfigCommand(h *CommandHandler, args []constants.DataRepr) ([]consta
 		return h.CommandRegistry[constants.CONFIG_GET_COMMAND](h, args[1:])
 	}
 	return []constants.DataRepr{}, nil
+}
+
+func handleKeysCommand(h *CommandHandler, args []constants.DataRepr) ([]constants.DataRepr, error) {
+	keySearchPattern := string(args[0].Data)
+	keys := h.db.GetKeysWithPattern(keySearchPattern)
+	keysDataRepr := make([]constants.DataRepr, len(keys))
+	for i, key := range keys {
+		keysDataRepr[i] = utils.CreateBulkResponse(key)
+	}
+	return []constants.DataRepr{utils.CreateArrayDataRepr(keysDataRepr)}, nil
 }
 
 // Sub-command handler space

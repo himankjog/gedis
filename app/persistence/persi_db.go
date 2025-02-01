@@ -90,8 +90,26 @@ func (mem *Memory) DeleteExpired(key string) (Value, bool) {
 	return value, valueExists
 }
 
-func (mem *Memory) GetAll() map[string]Value {
-	return mem.memoryMap
+func (mem *Memory) GetAllKeys() []string {
+	keys := make([]string, 0)
+	mem.lock.RLock()
+	defer mem.lock.RUnlock()
+	for key := range mem.memoryMap {
+		keys = append(keys, key)
+	}
+	now := time.Now()
+	for key, val := range mem.GetAllExpirableKeyValuePair() {
+		if val.ExpirationTime == nil || now.Before(*val.ExpirationTime) {
+			keys = append(keys, key)
+		}
+	}
+	return keys
+}
+
+func (mem *Memory) GetAllExpirableKeyValuePair() map[string]Value {
+	mem.expirableMemoryLock.RLock()
+	defer mem.expirableMemoryLock.RUnlock()
+	return mem.expirableMemoryMap
 }
 
 type PersiDb struct {
@@ -175,17 +193,36 @@ func (db *PersiDb) Fetch(key string) ([]byte, bool) {
 	return nil, false
 }
 
+func (db *PersiDb) GetKeysWithPattern(pattern string) []string {
+	keys := db.Memory.GetAllKeys()
+	matchedKeys := make([]string, 0)
+	for _, key := range keys {
+		if match, _ := match(pattern, key); match {
+			matchedKeys = append(matchedKeys, key)
+		}
+	}
+	return matchedKeys
+}
+
 func (db *PersiDb) garbageCollector() {
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
 
 	for range ticker.C {
 		now := time.Now()
-		for key, val := range db.Memory.GetAll() {
+		for key, val := range db.Memory.GetAllExpirableKeyValuePair() {
 			if val.ExpirationTime != nil && now.After(*val.ExpirationTime) {
 				db.Memory.DeleteExpired(key)
 				db.logger.Printf("Deleted expired key: %s", key)
 			}
 		}
 	}
+}
+
+func match(pattern string, key string) (bool, error) {
+	if pattern == "*" {
+		return true, nil
+	}
+	// TODO: Implement pattern matching
+	return false, nil
 }

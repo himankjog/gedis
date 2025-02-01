@@ -62,6 +62,7 @@ const (
 	PSYNC_COMMAND    = "PSYNC"
 	WAIT_COMMAND     = "WAIT"
 	CONFIG_COMMAND   = "CONFIG"
+	KEYS_COMMAND     = "KEYS"
 )
 
 const (
