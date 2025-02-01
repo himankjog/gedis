@@ -3,10 +3,13 @@ package persistence
 import (
 	"bytes"
 	"fmt"
+	"log"
 	"os"
 	"strconv"
 	"time"
 )
+
+var LOG *log.Logger
 
 // OpCodes
 const (
@@ -67,7 +70,7 @@ func readNextNBytes(reader *bytes.Reader, n int) ([]byte, error) {
 	nextBytes := make([]byte, n)
 	_, err := reader.Read(nextBytes)
 	if err != nil {
-		fmt.Printf("Error while trying to read next %d bytes: %v", n, err.Error())
+		LOG.Printf("Error while trying to read next %d bytes: %v", n, err.Error())
 		return nil, err
 	}
 	return nextBytes, nil
@@ -81,6 +84,16 @@ func readNextByte(reader *bytes.Reader) (byte, error) {
 	return nextBytes[0], nil
 }
 
+func getLittleEndian(bytes []byte) uint64 {
+	byteCount := len(bytes)
+	// Run a loop from byteCount to 0
+	var result uint64 = 0
+	for i := byteCount - 1; i >= 0; i-- {
+		result |= uint64(bytes[i]) << uint(i*8)
+	}
+	return result
+}
+
 func readLengthEncoding(reader *bytes.Reader) (*LengthEncodingResponse, error) {
 	lengthEncodingByte, err := readNextByte(reader)
 	if err != nil {
@@ -91,35 +104,39 @@ func readLengthEncoding(reader *bytes.Reader) (*LengthEncodingResponse, error) {
 		ReturnValue:        0,
 		LengthEncodingType: lengthEncodingType,
 	}
-	fmt.Printf("Length encoding byte: %d", lengthEncodingByte)
+	LOG.Printf("Length encoding byte: %X", lengthEncodingByte)
 	switch lengthEncodingType {
 	case LENGTH_6BIT:
+		LOG.Printf("Length encoding type: LENGTH_6BIT: %X", lengthEncodingType)
 		length := uint64(lengthEncodingByte & SIX_BIT_MASK)
 		lengthEncodingResponse.ReturnValue = length
-		fmt.Printf("Read 6 bit length encoding. Length: %d", length)
+		LOG.Printf("Read 6 bit length encoding. Length: %d", length)
 		return &lengthEncodingResponse, nil
 	case LENGTH_14BIT:
+		LOG.Printf("Length encoding type: LENGTH_14BIT")
 		nextLengthEncodingByte, err := readNextByte(reader)
 		if err != nil {
 			return nil, err
 		}
 		length := (uint64(lengthEncodingByte&SIX_BIT_MASK) << 8) | uint64(nextLengthEncodingByte)
 		lengthEncodingResponse.ReturnValue = length
-		fmt.Printf("Read 14 bit length encoding. Length: %d", length)
+		LOG.Printf("Read 14 bit length encoding. Length: %d", length)
 		return &lengthEncodingResponse, nil
 	case LENGTH_32BIT:
+		LOG.Printf("Length encoding type: LENGTH_32BIT")
 		lengthBytes, err := readNextNBytes(reader, 4)
 		if err != nil {
 			return nil, err
 		}
 		length := (uint64(lengthBytes[0]) << 24) | (uint64(lengthBytes[1]) << 16) | (uint64(lengthBytes[2]) << 8) | uint64(lengthBytes[3])
 		lengthEncodingResponse.ReturnValue = length
-		fmt.Printf("Read 32 bit length encoding. Length: %d", length)
+		LOG.Printf("Read 32 bit length encoding. Length: %d", length)
 		return &lengthEncodingResponse, nil
 	case LENGTH_SPECIAL:
+		LOG.Printf("Length encoding type: LENGTH_SPECIAL")
 		length := uint64(lengthEncodingByte & SIX_BIT_MASK)
 		lengthEncodingResponse.ReturnValue = length
-		fmt.Printf("Read 6 bit special string encoding type: %d", length)
+		LOG.Printf("Read 6 bit special string encoding type: %d", length)
 		return &lengthEncodingResponse, nil
 	default:
 		return nil, fmt.Errorf("invalid length encoding type: %d", lengthEncodingType)
@@ -133,29 +150,30 @@ func readStringEncoding(reader *bytes.Reader) (string, error) {
 	}
 	lengthEncodingResponseValue := lengthEncodingResponse.ReturnValue
 	if lengthEncodingResponse.LengthEncodingType == LENGTH_SPECIAL {
+		// All the int types of special encodings are in little-endian
 		switch lengthEncodingResponseValue {
 		case INT_8BIT:
 			intByte, err := readNextByte(reader)
 			if err != nil {
-				fmt.Printf("error while trying to read 8 bit int encoded as string: %v", err.Error())
+				LOG.Printf("error while trying to read 8 bit int encoded as string: %v", err.Error())
 				return "", err
 			}
 			return strconv.FormatInt(int64(intByte), 10), nil
 		case INT_16BIT:
 			lengthBytes, err := readNextNBytes(reader, 2)
 			if err != nil {
-				fmt.Printf("Error while trying to read 16 bit int encoded as string: %v", err.Error())
+				LOG.Printf("Error while trying to read 16 bit int encoded as string: %v", err.Error())
 				return "", err
 			}
-			val := (int16(lengthBytes[1]) << 8) | int16(lengthBytes[0])
+			val := getLittleEndian(lengthBytes)
 			return strconv.FormatInt(int64(val), 10), nil
 		case INT_32BIT:
 			lengthBytes, err := readNextNBytes(reader, 4)
 			if err != nil {
-				fmt.Printf("Error while trying to read 32 bit int encoded as string: %v", err.Error())
+				LOG.Printf("Error while trying to read 32 bit int encoded as string: %v", err.Error())
 				return "", err
 			}
-			val := (int32(lengthBytes[3]) << 24) | (int32(lengthBytes[2]) << 16) | (int32(lengthBytes[1]) << 8) | int32(lengthBytes[0])
+			val := getLittleEndian(lengthBytes)
 			return strconv.FormatInt(int64(val), 10), nil
 		default:
 			return "", fmt.Errorf("unsupported string encoding type")
@@ -163,7 +181,7 @@ func readStringEncoding(reader *bytes.Reader) (string, error) {
 	}
 	stringBytes, err := readNextNBytes(reader, int(lengthEncodingResponseValue))
 	if err != nil {
-		fmt.Printf("Error while trying to read encoded string: %v", err.Error())
+		LOG.Printf("Error while trying to read encoded string: %v", err.Error())
 		return "", err
 	}
 	return string(stringBytes), nil
@@ -172,7 +190,7 @@ func readStringEncoding(reader *bytes.Reader) (string, error) {
 func readStringEncodingKeyValuePair(reader *bytes.Reader) ([]byte, error) {
 	value, err := readStringEncoding(reader)
 	if err != nil {
-		fmt.Printf("Error while trying to read string-encoded value: %v", err.Error())
+		LOG.Printf("Error while trying to read string-encoded value: %v", err.Error())
 		return nil, err
 	}
 	return []byte(value), nil
@@ -181,7 +199,7 @@ func readStringEncodingKeyValuePair(reader *bytes.Reader) ([]byte, error) {
 func readKeyValuePair(reader *bytes.Reader, valueType ValueType) (string, []byte, error) {
 	key, err := readStringEncoding(reader)
 	if err != nil {
-		fmt.Printf("Error while trying to read string-encoded key: %v", err.Error())
+		LOG.Printf("Error while trying to read string-encoded key: %v", err.Error())
 		return "", nil, err
 	}
 	switch valueType {
@@ -204,10 +222,10 @@ func readTableSize(reader *bytes.Reader) (int, error) {
 func validateChecksum(reader *bytes.Reader) bool {
 	checksumBytes, err := readNextNBytes(reader, 8)
 	if err != nil {
-		fmt.Printf("Error while trying to read checksum: %v", err.Error())
+		LOG.Printf("Error while trying to read checksum: %v", err.Error())
 		return false
 	}
-	fmt.Printf("Checksum: %v", checksumBytes)
+	LOG.Printf("Checksum: %v", checksumBytes)
 	return true
 }
 
@@ -222,11 +240,11 @@ func readDatabaseIndex(reader *bytes.Reader) (int, error) {
 func validateMetaData(reader *bytes.Reader) (string, string, bool) {
 	metaDataKey, metaDataValueBytes, err := readKeyValuePair(reader, STRING)
 	if err != nil {
-		fmt.Printf("Error while trying to read metadata key-value pair: %v", err.Error())
+		LOG.Printf("Error while trying to read metadata key-value pair: %v", err.Error())
 		return "", "", false
 	}
 	metaDataValue := string(metaDataValueBytes)
-	fmt.Printf("Metadata key: %s, Metadata value: %s", metaDataKey, metaDataValue)
+	LOG.Printf("Metadata key: %s, Metadata value: %s", metaDataKey, metaDataValue)
 	// TODO: Validate metadata
 	return metaDataKey, metaDataValue, true
 }
@@ -234,22 +252,22 @@ func validateMetaData(reader *bytes.Reader) (string, string, bool) {
 func validateHeaderSection(reader *bytes.Reader) bool {
 	magicStringBytes, err := readNextNBytes(reader, 5)
 	if err != nil {
-		fmt.Printf("Error while trying to read magic string: %v", err.Error())
+		LOG.Printf("Error while trying to read magic string: %v", err.Error())
 		return false
 	}
 	magicString := string(magicStringBytes)
 	if magicString != "REDIS" {
-		fmt.Printf("Invalid magic string: %s", magicString)
+		LOG.Printf("Invalid magic string: %s", magicString)
 		return false
 	}
-	fmt.Printf("Magic string: %s", magicString)
+	LOG.Printf("Magic string: %s", magicString)
 	rdbVersionNumber, err := readNextNBytes(reader, 4)
 	if err != nil {
-		fmt.Printf("Error while trying to read RDB version number: %v", err.Error())
+		LOG.Printf("Error while trying to read RDB version number: %v", err.Error())
 		return false
 	}
 	rdbVersion := string(rdbVersionNumber)
-	fmt.Printf("RDB version: %s", rdbVersion)
+	LOG.Printf("RDB version: %s", rdbVersion)
 	return true
 }
 
@@ -261,6 +279,7 @@ func loadDatabase(reader *bytes.Reader) (*IndexedDb, error) {
 	continueLoading := true
 	for continueLoading {
 		opcode, err := readNextByte(reader)
+		LOG.Printf("Load Database Opcode: %X", opcode)
 		if err != nil {
 			return nil, err
 		}
@@ -271,37 +290,39 @@ func loadDatabase(reader *bytes.Reader) (*IndexedDb, error) {
 			if err != nil {
 				return nil, err
 			}
-			fmt.Printf("Hash table size: %d", hashTableSize)
+			LOG.Printf("Hash table size: %d", hashTableSize)
 			indexedDb.expirableData = make(map[string]Value, hashTableSize)
 			expireHashTableSize, err := readTableSize(reader)
 			if err != nil {
 				return nil, err
 			}
-			fmt.Printf("Expire hash table size: %d", expireHashTableSize)
+			LOG.Printf("Expire hash table size: %d", expireHashTableSize)
 			indexedDb.nonExpirableData = make(map[string]Value, expireHashTableSize)
 		case EXPIRETIME_MS:
-			expiryTimeInMs, err := readLengthEncoding(reader)
+			encodedExpiryTimeInMs, err := readNextNBytes(reader, 8)
 			if err != nil {
 				return nil, err
 			}
-			fmt.Printf("Expiry time in milliseconds: %d", expiryTimeInMs)
+			expiryTimeInMs := getLittleEndian(encodedExpiryTimeInMs)
+			LOG.Printf("Expiry time in milliseconds: %d", expiryTimeInMs)
 			nextByte, err := readNextByte(reader)
 			if err != nil {
 				return nil, err
 			}
 
 			valueType := ValueType(nextByte)
-			fmt.Printf("[EXPIRABLE] Value type: %d", valueType)
+			LOG.Printf("[EXPIRABLE] Value type: %X", valueType)
 			key, val, err := readKeyValuePair(reader, valueType)
 			if err != nil {
+				LOG.Printf("Error while trying to read key-value pair: %v", err.Error())
 				return nil, err
 			}
-			fmt.Printf("[EXPIRABLE] Key: %s, Value: %q", key, val)
+			LOG.Printf("[EXPIRABLE] Key: %s, Value: %q", key, val)
 			// expiration time is the epoch timestamp in milliseconds
 			// Convert epoch timestamp to time.Time object
-			expiryTime := time.Unix(0, int64(expiryTimeInMs.ReturnValue)*int64(time.Millisecond))
+			expiryTime := time.Unix(0, int64(expiryTimeInMs)*int64(time.Millisecond))
 			if time.Now().After(expiryTime) {
-				fmt.Printf("Key: %s has expired, not adding to database", key)
+				LOG.Printf("Key: %s has expired, not adding to database", key)
 				continue
 			}
 			indexedDb.expirableData[key] = Value{
@@ -311,27 +332,28 @@ func loadDatabase(reader *bytes.Reader) (*IndexedDb, error) {
 			}
 
 		case EXPIRETIME:
-			expiryTimeInSeconds, err := readLengthEncoding(reader)
+			encodedExpiryTimeInSeconds, err := readNextNBytes(reader, 4)
 			if err != nil {
 				return nil, err
 			}
-			fmt.Printf("Expiry time in seconds: %d", expiryTimeInSeconds)
+			expiryTimeInSeconds := getLittleEndian(encodedExpiryTimeInSeconds)
+			LOG.Printf("Expiry time in seconds: %d", expiryTimeInSeconds)
 			nextByte, err := readNextByte(reader)
 			if err != nil {
 				return nil, err
 			}
 			valueType := ValueType(nextByte)
-			fmt.Printf("[EXPIRABLE] Value type: %d", valueType)
+			LOG.Printf("[EXPIRABLE] Value type: %X", valueType)
 			key, val, err := readKeyValuePair(reader, valueType)
 			if err != nil {
 				return nil, err
 			}
-			fmt.Printf("[EXPIRABLE] Key: %s, Value: %q", key, val)
+			LOG.Printf("[EXPIRABLE] Key: %s, Value: %q", key, val)
 			// expiration time is the epoch timestamp in milliseconds
 			// Convert epoch timestamp to time.Time object
-			expiryTime := time.Unix(int64(expiryTimeInSeconds.ReturnValue), 0)
+			expiryTime := time.Unix(int64(expiryTimeInSeconds), 0)
 			if time.Now().After(expiryTime) {
-				fmt.Printf("Key: %s has expired, not adding to database", key)
+				LOG.Printf("Key: %s has expired, not adding to database", key)
 				continue
 			}
 			indexedDb.expirableData[key] = Value{
@@ -348,7 +370,7 @@ func loadDatabase(reader *bytes.Reader) (*IndexedDb, error) {
 			if err != nil {
 				return nil, err
 			}
-			fmt.Printf("Key: %s, Value: %q", key, val)
+			LOG.Printf("Key: %s, Value: %q", key, val)
 			indexedDb.nonExpirableData[key] = Value{
 				Data:           val,
 				ValueType:      valueType,
@@ -375,6 +397,7 @@ func parseRdb(data []byte) (*LoadRDBResponse, error) {
 	continueParsing := true
 	for continueParsing {
 		opcode, err := readNextByte(reader)
+		LOG.Printf("Parse RDB Opcode: %X", opcode)
 		if err != nil {
 			return nil, err
 		}
@@ -392,7 +415,7 @@ func parseRdb(data []byte) (*LoadRDBResponse, error) {
 			if err != nil {
 				return nil, err
 			}
-			fmt.Printf("Reading database index: %d", databaseIndex)
+			LOG.Printf("Reading database index: %d", databaseIndex)
 			loadedDatabase, err := loadDatabase(reader)
 			if err != nil {
 				return nil, err
@@ -411,10 +434,11 @@ func parseRdb(data []byte) (*LoadRDBResponse, error) {
 	return &loadedRDB, nil
 }
 
-func LoadRDB(filePath string) (*LoadRDBResponse, error) {
+func LoadRDB(filePath string, logger *log.Logger) (*LoadRDBResponse, error) {
+	LOG = logger
 	file, err := os.Open(filePath)
 	if err != nil {
-		fmt.Printf("Error while trying to open file at path '%s': %v", filePath, err.Error())
+		LOG.Printf("Error while trying to open file at path '%s': %v", filePath, err.Error())
 		return nil, err
 	}
 	defer file.Close()
@@ -423,10 +447,10 @@ func LoadRDB(filePath string) (*LoadRDBResponse, error) {
 	data, err := os.ReadFile(filePath)
 
 	if err != nil {
-		fmt.Printf("Error while reading file at path '%s': %v", filePath, err.Error())
+		LOG.Printf("Error while reading file at path '%s': %v", filePath, err.Error())
 		return nil, err
 	}
-	fmt.Printf("Successfully read %d bytes from file '%s'", len(data), filePath)
+	LOG.Printf("Successfully read %d bytes from file '%s'", len(data), filePath)
 
 	return parseRdb(data)
 }

@@ -130,7 +130,7 @@ func (db *PersiDb) load() {
 		db.logger.Printf("RDB file not found at path: %s", rdbFilePath)
 		return
 	}
-	loadedRdb, err := LoadRDB(rdbFilePath)
+	loadedRdb, err := LoadRDB(rdbFilePath, db.logger)
 	if err != nil {
 		db.logger.Printf("Error while reading RDB file at path: %s, error: %v", rdbFilePath, err)
 		return
