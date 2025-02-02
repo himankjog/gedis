@@ -12,6 +12,35 @@ import (
 
 type ValueType byte
 
+// Value Types
+const (
+	STRING ValueType = 0x00
+	LIST   ValueType = 0x01
+	SET    ValueType = 0x02
+	ZSET   ValueType = 0x03
+	HASH   ValueType = 0x04
+	ZIPMAP ValueType = 0x09
+)
+
+func (vt ValueType) String() string {
+	switch vt {
+	case STRING:
+		return "string"
+	case LIST:
+		return "list"
+	case SET:
+		return "set"
+	case ZSET:
+		return "zset"
+	case HASH:
+		return "hash"
+	case ZIPMAP:
+		return "zipmap"
+	default:
+		return "none"
+	}
+}
+
 type Value struct {
 	Data           []byte
 	ValueType      ValueType
@@ -174,7 +203,7 @@ func (db *PersiDb) Persist(key string, value []byte, options SetOptions) error {
 	return err
 }
 
-func (db *PersiDb) Fetch(key string) ([]byte, bool) {
+func (db *PersiDb) Fetch(key string) (*Value, bool) {
 	db.logger.Printf("Fetching value for key: %s", key)
 	value, valueExists := db.Memory.Get(key)
 	if !valueExists {
@@ -186,7 +215,7 @@ func (db *PersiDb) Fetch(key string) ([]byte, bool) {
 	if !isKeyExpired {
 		// If value exists and it hasn't expired, return the value
 		db.logger.Printf("Value fetched for key '%s' is: %q", key, value.Data)
-		return value.Data, true
+		return &value, true
 	}
 	db.logger.Printf("Value '%q' against  key '%s' has expired", value.Data, key)
 	db.Memory.DeleteExpired(key)
@@ -202,6 +231,14 @@ func (db *PersiDb) GetKeysWithPattern(pattern string) []string {
 		}
 	}
 	return matchedKeys
+}
+
+func (db *PersiDb) GetKeyType(key string) string {
+	value, valueExists := db.Memory.Get(key)
+	if !valueExists {
+		return "none"
+	}
+	return value.ValueType.String()
 }
 
 func (db *PersiDb) garbageCollector() {

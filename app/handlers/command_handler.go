@@ -36,6 +36,7 @@ func InitCommandHandler(ctx *context.Context, notificationHandler *NotificationH
 	cmdRegistry[constants.WAIT_COMMAND] = handleWaitCommand
 	cmdRegistry[constants.CONFIG_COMMAND] = handleConfigCommand
 	cmdRegistry[constants.KEYS_COMMAND] = handleKeysCommand
+	cmdRegistry[constants.TYPE_COMMAND] = handleTypeCommand
 
 	// Sub-commands
 	cmdRegistry[constants.SET_PX_COMMAND] = handleSetPxCommand
@@ -124,7 +125,7 @@ func handleGetCommand(h *CommandHandler, args []constants.DataRepr) ([]constants
 		return []constants.DataRepr{utils.NilBulkStringResponse()}, nil
 	}
 	h.ctx.Logger.Printf("For key: %s, fetched value: %q", key, value)
-	return []constants.DataRepr{utils.CreateBulkResponse(string(value))}, nil
+	return []constants.DataRepr{utils.CreateBulkResponse(string(value.Data))}, nil
 }
 
 func handleSetCommand(h *CommandHandler, args []constants.DataRepr) ([]constants.DataRepr, error) {
@@ -203,6 +204,12 @@ func handleKeysCommand(h *CommandHandler, args []constants.DataRepr) ([]constant
 		keysDataRepr[i] = utils.CreateBulkResponse(key)
 	}
 	return []constants.DataRepr{utils.CreateArrayDataRepr(keysDataRepr)}, nil
+}
+
+func handleTypeCommand(h *CommandHandler, args []constants.DataRepr) ([]constants.DataRepr, error) {
+	key := string(args[0].Data)
+	keyType := h.db.GetKeyType(key)
+	return []constants.DataRepr{utils.CreateStringResponse(keyType)}, nil
 }
 
 // Sub-command handler space

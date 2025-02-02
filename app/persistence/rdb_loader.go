@@ -21,11 +21,6 @@ const (
 	EOF           = 0xFF
 )
 
-// Value Types
-const (
-	STRING ValueType = 0x00
-)
-
 type LengthEncodingType byte
 
 // Length encoding types

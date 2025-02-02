@@ -63,6 +63,7 @@ const (
 	WAIT_COMMAND     = "WAIT"
 	CONFIG_COMMAND   = "CONFIG"
 	KEYS_COMMAND     = "KEYS"
+	TYPE_COMMAND     = "TYPE"
 )
 
 const (
