@@ -64,6 +64,7 @@ const (
 	CONFIG_COMMAND   = "CONFIG"
 	KEYS_COMMAND     = "KEYS"
 	TYPE_COMMAND     = "TYPE"
+	XADD_COMMAND     = "XADD"
 )
 
 const (
@@ -102,6 +103,13 @@ const (
 const (
 	RDB_DIR       = "dir"
 	RDB_FILE_NAME = "dbfilename"
+)
+
+// Data Types
+const (
+	STREAM           = "stream"
+	NONE             = "none"
+	STRING_DATA_TYPE = "string"
 )
 
 // Notifications

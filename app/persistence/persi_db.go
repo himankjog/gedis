@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/codecrafters-io/redis-starter-go/app/constants"
 	"github.com/codecrafters-io/redis-starter-go/app/context"
 )
 
@@ -37,18 +38,19 @@ func (vt ValueType) String() string {
 	case ZIPMAP:
 		return "zipmap"
 	default:
-		return "none"
+		return constants.NONE
 	}
 }
 
 type Value struct {
 	Data           []byte
-	ValueType      ValueType
+	Type           string
 	ExpirationTime *time.Time
 }
 
 type SetOptions struct {
 	ExpiryDuration time.Duration
+	ValueType      string
 }
 
 type Memory struct {
@@ -147,6 +149,7 @@ type PersiDb struct {
 	dbDir      string
 	dbFileName string
 	Memory     *Memory
+	streamMap  map[string]*Stream
 }
 
 func (db *PersiDb) load() {
@@ -183,6 +186,7 @@ func Init(ctx *context.Context) *PersiDb {
 		dbDir:      ctx.ServerInstance.GetRdbDir(),
 		dbFileName: ctx.ServerInstance.GetRdbFileName(),
 		Memory:     initMemory(),
+		streamMap:  make(map[string]*Stream),
 	}
 	go db.load()
 	go db.garbageCollector()
@@ -192,6 +196,7 @@ func Init(ctx *context.Context) *PersiDb {
 func (db *PersiDb) Persist(key string, value []byte, options SetOptions) error {
 	valueToPersist := Value{
 		Data: value,
+		Type: options.ValueType,
 	}
 
 	if options.ExpiryDuration > 0 {
@@ -222,6 +227,38 @@ func (db *PersiDb) Fetch(key string) (*Value, bool) {
 	return nil, false
 }
 
+func (db *PersiDb) createStream(streamKey string) (*Stream, error) {
+	stream, streamExists := db.streamMap[streamKey]
+	if streamExists {
+		return stream, nil
+	}
+	stream = NewStream(streamKey)
+	db.streamMap[streamKey] = stream
+	return stream, nil
+
+}
+
+func (db *PersiDb) getStream(streamKey string) (*Stream, bool) {
+	stream, streamExists := db.streamMap[streamKey]
+	return stream, streamExists
+}
+
+func (db *PersiDb) AddToStream(streamKey string, persistId string, fieldValuePairs [][]byte) (string, error) {
+	var err error
+	stream, streamExists := db.streamMap[streamKey]
+	if !streamExists {
+		stream, err = db.createStream(streamKey)
+		if err != nil {
+			return "", err
+		}
+	}
+	persistedId, err := stream.Add(persistId, fieldValuePairs)
+	if err != nil {
+		return "", err
+	}
+	return persistedId, nil
+}
+
 func (db *PersiDb) GetKeysWithPattern(pattern string) []string {
 	keys := db.Memory.GetAllKeys()
 	matchedKeys := make([]string, 0)
@@ -230,15 +267,24 @@ func (db *PersiDb) GetKeysWithPattern(pattern string) []string {
 			matchedKeys = append(matchedKeys, key)
 		}
 	}
+	for streamKey := range db.streamMap {
+		if match, _ := match(pattern, streamKey); match {
+			matchedKeys = append(matchedKeys, streamKey)
+		}
+	}
 	return matchedKeys
 }
 
 func (db *PersiDb) GetKeyType(key string) string {
 	value, valueExists := db.Memory.Get(key)
 	if !valueExists {
-		return "none"
+		_, streamExists := db.getStream(key)
+		if !streamExists {
+			return constants.NONE
+		}
+		return constants.STREAM
 	}
-	return value.ValueType.String()
+	return value.Type
 }
 
 func (db *PersiDb) garbageCollector() {

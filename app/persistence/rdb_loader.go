@@ -322,7 +322,7 @@ func loadDatabase(reader *bytes.Reader) (*IndexedDb, error) {
 			}
 			indexedDb.expirableData[key] = Value{
 				Data:           val,
-				ValueType:      valueType,
+				Type:           valueType.String(),
 				ExpirationTime: &expiryTime,
 			}
 
@@ -353,7 +353,7 @@ func loadDatabase(reader *bytes.Reader) (*IndexedDb, error) {
 			}
 			indexedDb.expirableData[key] = Value{
 				Data:           val,
-				ValueType:      valueType,
+				Type:           valueType.String(),
 				ExpirationTime: &expiryTime,
 			}
 		case EOF, SELECTDB:
@@ -368,7 +368,7 @@ func loadDatabase(reader *bytes.Reader) (*IndexedDb, error) {
 			LOG.Printf("Key: %s, Value: %q", key, val)
 			indexedDb.nonExpirableData[key] = Value{
 				Data:           val,
-				ValueType:      valueType,
+				Type:           valueType.String(),
 				ExpirationTime: nil,
 			}
 		}

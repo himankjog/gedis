@@ -37,6 +37,7 @@ func InitCommandHandler(ctx *context.Context, notificationHandler *NotificationH
 	cmdRegistry[constants.CONFIG_COMMAND] = handleConfigCommand
 	cmdRegistry[constants.KEYS_COMMAND] = handleKeysCommand
 	cmdRegistry[constants.TYPE_COMMAND] = handleTypeCommand
+	cmdRegistry[constants.XADD_COMMAND] = handleXaddCommand
 
 	// Sub-commands
 	cmdRegistry[constants.SET_PX_COMMAND] = handleSetPxCommand
@@ -140,7 +141,9 @@ func handleSetCommand(h *CommandHandler, args []constants.DataRepr) ([]constants
 	}
 	key := string(args[0].Data)
 	value := args[1].Data
-	err := h.db.Persist(key, value, persistence.SetOptions{})
+	err := h.db.Persist(key, value, persistence.SetOptions{
+		ValueType: constants.STRING_DATA_TYPE,
+	})
 
 	if err != nil {
 		h.ctx.Logger.Printf("Error while handling SET command: %v", err.Error())
@@ -212,6 +215,20 @@ func handleTypeCommand(h *CommandHandler, args []constants.DataRepr) ([]constant
 	return []constants.DataRepr{utils.CreateStringResponse(keyType)}, nil
 }
 
+func handleXaddCommand(h *CommandHandler, args []constants.DataRepr) ([]constants.DataRepr, error) {
+	streamKey := string(args[0].Data)
+	providedEntryUid := string(args[1].Data)
+	fieldValuePairs := make([][]byte, len(args)-2)
+	for i, arg := range args[2:] {
+		fieldValuePairs[i] = arg.Data
+	}
+	persistedId, err := h.db.AddToStream(streamKey, providedEntryUid, fieldValuePairs)
+	if err != nil {
+		return []constants.DataRepr{}, err
+	}
+	return []constants.DataRepr{utils.CreateBulkResponse(persistedId)}, nil
+}
+
 // Sub-command handler space
 
 func handleSetPxCommand(h *CommandHandler, args []constants.DataRepr) ([]constants.DataRepr, error) {
@@ -231,6 +248,7 @@ func handleSetPxCommand(h *CommandHandler, args []constants.DataRepr) ([]constan
 	}
 	setOptions := persistence.SetOptions{
 		ExpiryDuration: time.Duration(expiryDurationInMilli) * time.Millisecond,
+		ValueType:      constants.STRING_DATA_TYPE,
 	}
 	err = h.db.Persist(key, value, setOptions)
 
